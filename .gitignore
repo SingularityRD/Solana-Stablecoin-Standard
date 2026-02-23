@@ -1,0 +1,87 @@
+# Rust
+target/
+**/target/
+**/*.rs.bk
+*.rlib
+*.rmeta
+*.so
+*.dylib
+*.dll
+*.pdb
+*.exe
+*.cache
+*.ll
+*.bc
+*.o
+*.a
+
+# Cargo.lock (keep for reproducible builds)
+# Cargo.lock
+
+# Anchor
+.idl/
+**/idl/
+**/idls/
+**/types/
+**/src/idl/
+deploy/
+test-ledger/
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+.pnp/
+.pnp.js
+
+# Build
+dist/
+build/
+.next/
+out/
+.vercel/
+
+# Environment
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.development
+.env.test
+.env.production
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+logs/
+*.log
+
+# Test coverage
+coverage/
+*.lcov
+.nyc_output/
+
+# Docker
+docker-compose.override.yml
+
+# Temporary
+tmp/
+temp/
+*.tmp
+*.bak
+
+# Solana
+**/program_build/
+**/program_id.json
+
+# Keypairs
+**/*.keypair.json
+**/*.key.json
+id.json

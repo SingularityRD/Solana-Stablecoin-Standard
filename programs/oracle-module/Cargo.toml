@@ -1,0 +1,19 @@
+[package]
+name = "sss-oracle-module"
+version = "0.1.0"
+description = "Oracle integration for SSS - Price feed management"
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "sss_oracle_module"
+
+[features]
+no-entrypoint = []
+no-idl = []
+cpi = ["no-entrypoint"]
+default = []
+
+[dependencies]
+anchor-lang = { workspace = true, features = ["init-if-needed"] }

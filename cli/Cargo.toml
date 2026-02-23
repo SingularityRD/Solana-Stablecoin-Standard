@@ -1,0 +1,22 @@
+[package]
+name = "sss-cli"
+version = "0.1.0"
+description = "Admin CLI for Solana Stablecoin Standard"
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "sss-token"
+path = "src/main.rs"
+
+[dependencies]
+anchor-client.workspace = true
+anchor-lang.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+solana-client.workspace = true
+solana-sdk.workspace = true
+toml.workspace = true
+thiserror.workspace = true

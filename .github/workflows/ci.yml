@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+  SOLANA_CLI_VERSION: 1.18.23
+  ANCHOR_CLI_VERSION: 0.30.1
+
+jobs:
+  rust-checks:
+    name: Rust Format & Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Check Formatting
+        run: cargo fmt -- --check
+        
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  program-tests:
+    name: Program Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Solana
+        uses: mbund/setup-solana@v1
+        with:
+          solana-version: ${{ env.SOLANA_CLI_VERSION }}
+
+      - name: Install Anchor
+        uses: coral-xyz/setup-anchor@v2
+        with:
+          anchor-version: ${{ env.ANCHOR_CLI_VERSION }}
+
+      - name: Run Unit Tests
+        run: cargo test -p sss-token
+
+  typescript-tests:
+    name: SDK Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'yarn'
+
+      - name: Install Dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build SDK
+        run: cd sdk/core && yarn build
