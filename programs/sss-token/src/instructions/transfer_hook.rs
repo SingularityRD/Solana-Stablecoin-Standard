@@ -1,61 +1,47 @@
 use anchor_lang::prelude::*;
-use spl_transfer_hook_interface::instruction::TransferHookInstruction;
 use crate::state::*;
 use crate::error::StablecoinError;
 use crate::constants::BLACKLIST_SEED;
 
-/// Transfer hook enforcement for SSS-2
-/// This implements the Execute instruction required by spl-transfer-hook-interface
 pub fn enforce_transfer(
     ctx: Context<TransferHook>,
-    amount: u64,
+    _amount: u64,
 ) -> Result<()> {
     let state = &ctx.accounts.state;
     
-    // Only enforce for SSS-2
     if !state.compliance_enabled {
         return Ok(());
     }
     
-    // Check sender not blacklisted
-    let sender_key = ctx.accounts.source.key();
-    let (sender_blacklist_pda, _) = find_blacklist_pda(state.key(), sender_key);
-    let sender_blacklisted = ctx.accounts.sender_blacklist.key == &sender_blacklist_pda;
-    require!(!sender_blacklisted, StablecoinError::BlacklistViolation);
+    let (sender_blacklist_pda, _) = find_blacklist_pda(state.key(), ctx.accounts.source.key());
+    if ctx.accounts.sender_blacklist.key == &sender_blacklist_pda {
+        require!(ctx.accounts.sender_blacklist.data_is_empty(), StablecoinError::BlacklistViolation);
+    }
     
-    // Check recipient not blacklisted
-    let recipient_key = ctx.accounts.destination.key();
-    let (recipient_blacklist_pda, _) = find_blacklist_pda(state.key(), recipient_key);
-    let recipient_blacklisted = ctx.accounts.recipient_blacklist.key == &recipient_blacklist_pda;
-    require!(!recipient_blacklisted, StablecoinError::BlacklistViolation);
+    let (recipient_blacklist_pda, _) = find_blacklist_pda(state.key(), ctx.accounts.destination.key());
+    if ctx.accounts.recipient_blacklist.key == &recipient_blacklist_pda {
+        require!(ctx.accounts.recipient_blacklist.data_is_empty(), StablecoinError::BlacklistViolation);
+    }
     
-    msg!("Transfer Hook: Allowed transfer of {} tokens", amount);
     Ok(())
 }
 
 #[derive(Accounts)]
 pub struct TransferHook<'info> {
-    /// CHECK: The source token account
+    /// CHECK: source
     pub source: AccountInfo<'info>,
-    
-    /// CHECK: The token mint
+    /// CHECK: mint
     pub mint: AccountInfo<'info>,
-    
-    /// CHECK: The destination token account
+    /// CHECK: destination
     pub destination: AccountInfo<'info>,
-    
-    /// CHECK: The source token account owner/delegate
+    /// CHECK: owner
     pub owner: AccountInfo<'info>,
-    
-    /// CHECK: ExtraAccountMetaList PDA
+    /// CHECK: extra meta
     pub extra_account_meta_list: AccountInfo<'info>,
-    
     pub state: Account<'info, StablecoinState>,
-    
-    /// CHECK: Sender blacklist PDA
+    /// CHECK: sender blacklist
     pub sender_blacklist: AccountInfo<'info>,
-    
-    /// CHECK: Recipient blacklist PDA
+    /// CHECK: recipient blacklist
     pub recipient_blacklist: AccountInfo<'info>,
 }
 

@@ -5,7 +5,7 @@ use crate::state::*;
 use crate::error::StablecoinError;
 use crate::events::*;
 use crate::math::update_supply;
-use crate::constants::VAULT_SEED;
+use crate::constants::{VAULT_SEED, ROLE_SEED};
 
 #[derive(Accounts)]
 pub struct Mint<'info> {
@@ -14,11 +14,16 @@ pub struct Mint<'info> {
     
     #[account(
         mut,
-        has_one = authority @ StablecoinError::Unauthorized,
         has_one = asset_mint
     )]
     pub state: Account<'info, StablecoinState>,
     
+    #[account(
+        seeds = [ROLE_SEED, state.key().as_ref(), authority.key().as_ref()],
+        bump,
+    )]
+    pub role_assignment: Option<Account<'info, RoleAssignment>>,
+
     #[account(mut)]
     pub asset_mint: InterfaceAccount<'info, TokenMint>,
     
@@ -29,13 +34,22 @@ pub struct Mint<'info> {
 }
 
 pub fn handler(ctx: Context<Mint>, amount: u64) -> Result<()> {
-    require!(amount > 0, StablecoinError::ZeroAmount);
-    require!(!ctx.accounts.state.paused, StablecoinError::VaultPaused);
-    
     let state = &mut ctx.accounts.state;
+    
+    // RBAC Check: Must be Master (state.authority) or have Minter role
+    let is_master = ctx.accounts.authority.key() == state.authority;
+    let is_minter = if let Some(assignment) = &ctx.accounts.role_assignment {
+        assignment.role == Role::Minter || assignment.role == Role::Master
+    } else {
+        false
+    };
+
+    require!(is_master || is_minter, StablecoinError::Unauthorized);
+    require!(amount > 0, StablecoinError::ZeroAmount);
+    require!(!state.paused, StablecoinError::VaultPaused);
+    
     state.total_supply = update_supply(state.total_supply, amount, true)?;
     
-    // CPI to SPL Token-2022 to actual mint tokens
     let asset_mint_key = state.asset_mint.key();
     let authority_seeds = &[
         VAULT_SEED,
