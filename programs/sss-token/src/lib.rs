@@ -71,11 +71,11 @@ pub mod sss_token {
         instructions::role_management::handler(ctx, role)
     }
 
-    // Since we are using standard Anchor instruction routing, we can expose 
-    // the transfer hook directly as a standard instruction, or use the exact Execute 
+    // Since we are using standard Anchor instruction routing, we can expose
+    // the transfer hook directly as a standard instruction, or use the exact Execute
     // discriminator. To be perfectly 100% compliant with standard Anchor,
-    // we use a dedicated route for the hook testing. 
-    // (Note: Raw SPL integration uses a fallback, but here we just expose the logic 
+    // we use a dedicated route for the hook testing.
+    // (Note: Raw SPL integration uses a fallback, but here we just expose the logic
     // so tests and the SDK can call it directly).
     pub fn execute_transfer_hook(ctx: Context<TransferHook>, amount: u64) -> Result<()> {
         instructions::transfer_hook::enforce_transfer(ctx, amount)

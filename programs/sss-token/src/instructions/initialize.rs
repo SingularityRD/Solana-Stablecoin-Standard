@@ -1,14 +1,14 @@
-use anchor_lang::prelude::*;
-use crate::state::*;
+use crate::constants::*;
 use crate::error::StablecoinError;
 use crate::events::*;
-use crate::constants::*;
+use crate::state::*;
+use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
-    
+
     #[account(
         init,
         payer = authority,
@@ -17,7 +17,7 @@ pub struct Initialize<'info> {
         bump
     )]
     pub state: Account<'info, StablecoinState>,
-    
+
     pub asset_mint: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
 }
@@ -31,13 +31,19 @@ pub fn handler(
     decimals: u8,
 ) -> Result<()> {
     let state = &mut ctx.accounts.state;
-    
-    require!(preset == PRESET_SSS_1 || preset == PRESET_SSS_2, StablecoinError::InvalidPreset);
+
+    require!(
+        preset == PRESET_SSS_1 || preset == PRESET_SSS_2,
+        StablecoinError::InvalidPreset
+    );
     require!(name.len() <= MAX_NAME_LENGTH, StablecoinError::NameTooLong);
-    require!(symbol.len() <= MAX_SYMBOL_LENGTH, StablecoinError::SymbolTooLong);
+    require!(
+        symbol.len() <= MAX_SYMBOL_LENGTH,
+        StablecoinError::SymbolTooLong
+    );
     require!(uri.len() <= MAX_URI_LENGTH, StablecoinError::UriTooLong);
     require!(decimals <= 9, StablecoinError::InvalidDecimals);
-    
+
     state.authority = ctx.accounts.authority.key();
     state.asset_mint = ctx.accounts.asset_mint.key();
     state.total_supply = 0;
@@ -45,7 +51,7 @@ pub fn handler(
     state.preset = preset;
     state.compliance_enabled = preset == PRESET_SSS_2;
     state.bump = ctx.bumps.state;
-    
+
     emit!(StablecoinInitialized {
         stablecoin: state.key(),
         preset,
@@ -54,6 +60,6 @@ pub fn handler(
         decimals,
         compliance_enabled: state.compliance_enabled,
     });
-    
+
     Ok(())
 }

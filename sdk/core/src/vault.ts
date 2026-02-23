@@ -1,19 +1,11 @@
 import { Connection, PublicKey, Signer, SystemProgram } from '@solana/web3.js';
 import { Program, AnchorProvider, BN } from '@coral-xyz/anchor';
 import { TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
+import { Role } from './types';
 
 export enum Presets {
   SSS_1 = 1,
   SSS_2 = 2,
-}
-
-export enum Role {
-  Master = { master: {} },
-  Minter = { minter: {} },
-  Burner = { burner: {} },
-  Blacklister = { blacklister: {} },
-  Pauser = { pauser: {} },
-  Seizer = { seizer: {} },
 }
 
 export interface StablecoinConfig {
@@ -22,6 +14,16 @@ export interface StablecoinConfig {
   uri: string;
   decimals: number;
   preset?: Presets;
+}
+
+export interface StablecoinAccount {
+  authority: PublicKey;
+  assetMint: PublicKey;
+  totalSupply: BN;
+  paused: boolean;
+  preset: number;
+  complianceEnabled: boolean;
+  bump: number;
 }
 
 export class SolanaStablecoin {
@@ -79,14 +81,16 @@ export class SolanaStablecoin {
     return new SolanaStablecoin(connection, program, provider, stablecoinPda, config.assetMint, config);
   }
 
-  async assignRole(authority: Signer, targetAccount: PublicKey, role: any): Promise<string> {
+  async assignRole(authority: Signer, targetAccount: PublicKey, role: Role): Promise<string> {
     const [assignmentPda] = PublicKey.findProgramAddressSync(
       [Buffer.from('role'), this.stablecoinPda.toBuffer(), targetAccount.toBuffer()],
       this.program.programId
     );
 
+    const anchorRole = { [role.toLowerCase()]: {} };
+
     return this.program.methods
-      .assignRole(role)
+      .assignRole(anchorRole)
       .accounts({
         authority: authority.publicKey,
         state: this.stablecoinPda,
@@ -99,16 +103,21 @@ export class SolanaStablecoin {
   }
 
   async mint(authority: Signer, recipient: PublicKey, amount: number, roleAssignment?: PublicKey): Promise<string> {
+    const accounts: any = {
+      authority: authority.publicKey,
+      state: this.stablecoinPda,
+      assetMint: this.assetMint,
+      recipient,
+      tokenProgram: TOKEN_2022_PROGRAM_ID,
+    };
+    
+    if (roleAssignment) {
+      accounts.roleAssignment = roleAssignment;
+    }
+
     return this.program.methods
       .mint(new BN(amount))
-      .accounts({
-        authority: authority.publicKey,
-        state: this.stablecoinPda,
-        roleAssignment: roleAssignment || null,
-        assetMint: this.assetMint,
-        recipient,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
-      })
+      .accounts(accounts)
       .signers([authority])
       .rpc();
   }
@@ -128,34 +137,54 @@ export class SolanaStablecoin {
   }
 
   async freeze(authority: Signer, account: PublicKey, roleAssignment?: PublicKey): Promise<string> {
+    const accounts: any = {
+      authority: authority.publicKey,
+      state: this.stablecoinPda,
+      assetMint: this.assetMint,
+      account,
+      tokenProgram: TOKEN_2022_PROGRAM_ID,
+    };
+
+    if (roleAssignment) {
+      accounts.roleAssignment = roleAssignment;
+    }
+
     return this.program.methods
       .freezeAccount()
-      .accounts({
-        authority: authority.publicKey,
-        state: this.stablecoinPda,
-        roleAssignment: roleAssignment || null,
-        assetMint: this.assetMint,
-        account,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
-      })
+      .accounts(accounts)
       .signers([authority])
       .rpc();
   }
 
   async seize(authority: Signer, from: PublicKey, to: PublicKey, amount: number, roleAssignment?: PublicKey): Promise<string> {
+    const accounts: any = {
+      authority: authority.publicKey,
+      state: this.stablecoinPda,
+      assetMint: this.assetMint,
+      from,
+      to,
+      tokenProgram: TOKEN_2022_PROGRAM_ID,
+    };
+
+    if (roleAssignment) {
+      accounts.roleAssignment = roleAssignment;
+    }
+
     return this.program.methods
       .seize(new BN(amount))
-      .accounts({
-        authority: authority.publicKey,
-        state: this.stablecoinPda,
-        roleAssignment: roleAssignment || null,
-        assetMint: this.assetMint,
-        from,
-        to,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
-      })
+      .accounts(accounts)
       .signers([authority])
       .rpc();
+  }
+
+  async getTotalSupply(): Promise<number> {
+    const state = await (this.program.account as any).stablecoinState.fetch(this.stablecoinPda) as StablecoinAccount;
+    return state.totalSupply.toNumber();
+  }
+
+  async getStatus(): Promise<{ paused: boolean; preset: number; complianceEnabled: boolean }> {
+    const state = await (this.program.account as any).stablecoinState.fetch(this.stablecoinPda) as StablecoinAccount;
+    return { paused: state.paused, preset: state.preset, complianceEnabled: state.complianceEnabled };
   }
 
   get compliance(): ComplianceModule {

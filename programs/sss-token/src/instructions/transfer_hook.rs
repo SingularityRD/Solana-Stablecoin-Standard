@@ -1,28 +1,32 @@
-use anchor_lang::prelude::*;
-use crate::state::*;
-use crate::error::StablecoinError;
 use crate::constants::BLACKLIST_SEED;
+use crate::error::StablecoinError;
+use crate::state::*;
+use anchor_lang::prelude::*;
 
-pub fn enforce_transfer(
-    ctx: Context<TransferHook>,
-    _amount: u64,
-) -> Result<()> {
+pub fn enforce_transfer(ctx: Context<TransferHook>, _amount: u64) -> Result<()> {
     let state = &ctx.accounts.state;
-    
+
     if !state.compliance_enabled {
         return Ok(());
     }
-    
+
     let (sender_blacklist_pda, _) = find_blacklist_pda(state.key(), ctx.accounts.source.key());
     if ctx.accounts.sender_blacklist.key == &sender_blacklist_pda {
-        require!(ctx.accounts.sender_blacklist.data_is_empty(), StablecoinError::BlacklistViolation);
+        require!(
+            ctx.accounts.sender_blacklist.data_is_empty(),
+            StablecoinError::BlacklistViolation
+        );
     }
-    
-    let (recipient_blacklist_pda, _) = find_blacklist_pda(state.key(), ctx.accounts.destination.key());
+
+    let (recipient_blacklist_pda, _) =
+        find_blacklist_pda(state.key(), ctx.accounts.destination.key());
     if ctx.accounts.recipient_blacklist.key == &recipient_blacklist_pda {
-        require!(ctx.accounts.recipient_blacklist.data_is_empty(), StablecoinError::BlacklistViolation);
+        require!(
+            ctx.accounts.recipient_blacklist.data_is_empty(),
+            StablecoinError::BlacklistViolation
+        );
     }
-    
+
     Ok(())
 }
 

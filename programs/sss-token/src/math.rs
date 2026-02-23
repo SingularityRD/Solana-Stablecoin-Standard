@@ -1,5 +1,5 @@
-use anchor_lang::prelude::*;
 use crate::error::StablecoinError;
+use anchor_lang::prelude::*;
 
 pub fn safe_add(a: u64, b: u64) -> Result<u64> {
     a.checked_add(b).ok_or(StablecoinError::MathOverflow.into())

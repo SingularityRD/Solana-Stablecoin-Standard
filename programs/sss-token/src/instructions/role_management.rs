@@ -1,19 +1,19 @@
-use anchor_lang::prelude::*;
-use crate::state::*;
+use crate::constants::ROLE_SEED;
 use crate::error::StablecoinError;
 use crate::events::*;
-use crate::constants::ROLE_SEED;
+use crate::state::*;
+use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
 pub struct AssignRole<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
-    
+
     #[account(
         has_one = authority @ StablecoinError::Unauthorized
     )]
     pub state: Account<'info, StablecoinState>,
-    
+
     #[account(
         init,
         payer = authority,
@@ -22,7 +22,7 @@ pub struct AssignRole<'info> {
         bump
     )]
     pub assignment: Account<'info, RoleAssignment>,
-    
+
     pub account: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
 }
@@ -34,7 +34,7 @@ pub fn handler(ctx: Context<AssignRole>, role: Role) -> Result<()> {
     assignment.assigned_by = ctx.accounts.authority.key();
     assignment.assigned_at = Clock::get()?.unix_timestamp;
     assignment.bump = ctx.bumps.assignment;
-    
+
     let role_name = match role {
         Role::Master => "Master",
         Role::Minter => "Minter",
@@ -43,7 +43,7 @@ pub fn handler(ctx: Context<AssignRole>, role: Role) -> Result<()> {
         Role::Pauser => "Pauser",
         Role::Seizer => "Seizer",
     };
-    
+
     emit!(RoleAssigned {
         stablecoin: ctx.accounts.state.key(),
         role: role_name.to_string(),
