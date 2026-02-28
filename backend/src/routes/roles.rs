@@ -8,13 +8,28 @@ use serde_json::json;
 use solana_sdk::pubkey::Pubkey;
 use sqlx::query_as;
 use uuid::Uuid;
+use validator::Validate;
 
 use crate::{
     error::{ApiError, ApiResult},
     models::{AssignRoleRequest, RoleAssignment, User},
     app_middleware::auth::AuthUser,
+    utils::audit,
     AppState,
 };
+
+/// Helper function to convert validation errors to API error
+fn validation_error_to_api_error(e: validator::ValidationErrors) -> ApiError {
+    let error_messages: Vec<String> = e.field_errors()
+        .into_iter()
+        .flat_map(|(field, errors)| {
+            errors.iter().map(move |err| {
+                format!("{}: {}", field, err.message.as_ref().map(|m| m.as_ref()).unwrap_or("invalid"))
+            })
+        })
+        .collect();
+    ApiError::Validation(error_messages.join("; "))
+}
 
 /// Assign a role to an account
 pub async fn assign(
@@ -23,18 +38,12 @@ pub async fn assign(
     Path(id): Path<Uuid>,
     Json(req): Json<AssignRoleRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    // Parse and validate account pubkey
+    // Validate input using validator crate (includes role and pubkey validation)
+    req.validate().map_err(validation_error_to_api_error)?;
+    
+    // Parse and validate account pubkey (additional validation)
     let account_pubkey: Pubkey = req.account.parse()
         .map_err(|_| ApiError::Validation("Invalid account pubkey".to_string()))?;
-    
-    // Validate role
-    let valid_roles = ["minter", "burner", "freezer", "blacklister", "seizer", "pauser"];
-    if !valid_roles.contains(&req.role.as_str()) {
-        return Err(ApiError::Validation(format!(
-            "Invalid role. Must be one of: {}", 
-            valid_roles.join(", ")
-        )));
-    }
     
     // Get stablecoin and check ownership
     let stablecoin = get_stablecoin_for_admin(&state, id, &user).await?;
@@ -69,7 +78,8 @@ pub async fn assign(
     .map_err(|e| ApiError::Database(e.to_string()))?;
     
     // Log audit
-    let _ = state.db.log_audit(
+    audit(
+        &state.db,
         Some(id),
         Some(user.id),
         "role.assign",
@@ -105,7 +115,8 @@ pub async fn revoke(
     }
     
     // Log audit
-    let _ = state.db.log_audit(
+    audit(
+        &state.db,
         Some(id),
         Some(user.id),
         "role.revoke",

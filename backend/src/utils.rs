@@ -140,3 +140,122 @@ pub fn format_timestamp(timestamp: i64) -> String {
         .unwrap_or_else(|| chrono::Utc::now());
     dt.format("%Y-%m-%d %H:%M:%S UTC").to_string()
 }
+
+use crate::db::Database;
+use serde_json::Value;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Global counter for tracking audit log failures
+static AUDIT_FAILURE_COUNT: AtomicU64 = AtomicU64::new(0);
+
+/// Critical actions that require alerting on audit log failure
+pub const CRITICAL_ACTIONS: &[&str] = &[
+    "stablecoin.seize",
+    "stablecoin.freeze",
+    "stablecoin.blacklist_add",
+    "role.assign",
+    "role.revoke",
+    "minter.add",
+    "minter.remove",
+];
+
+/// Audit log entry for structured logging
+#[derive(Debug, Clone)]
+pub struct AuditEntry {
+    pub stablecoin_id: Option<uuid::Uuid>,
+    pub user_id: Option<uuid::Uuid>,
+    pub action: String,
+    pub tx_signature: Option<String>,
+    pub details: Option<Value>,
+    pub ip_address: Option<String>,
+}
+
+/// Log an audit entry with proper error handling
+/// 
+/// This function:
+/// - Attempts to write the audit log to the database
+/// - On failure, logs the error at ERROR level via tracing
+/// - For critical actions, sends an alert (logged at WARN level)
+/// - Tracks the total number of audit failures globally
+/// - Never fails the main operation
+pub async fn log_audit(db: &Database, entry: AuditEntry) {
+    let is_critical = CRITICAL_ACTIONS.contains(&entry.action.as_str());
+    
+    match db.log_audit(
+        entry.stablecoin_id,
+        entry.user_id,
+        &entry.action,
+        entry.tx_signature.as_deref(),
+        entry.details.clone(),
+        entry.ip_address.as_deref(),
+    ).await {
+        Ok(()) => {
+            tracing::debug!(
+                stablecoin_id = ?entry.stablecoin_id,
+                user_id = ?entry.user_id,
+                action = %entry.action,
+                tx_signature = ?entry.tx_signature,
+                "Audit log recorded successfully"
+            );
+        }
+        Err(e) => {
+            // Increment failure counter
+            let failure_count = AUDIT_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+            
+            // Log the failure at ERROR level
+            tracing::error!(
+                stablecoin_id = ?entry.stablecoin_id,
+                user_id = ?entry.user_id,
+                action = %entry.action,
+                tx_signature = ?entry.tx_signature,
+                details = ?entry.details,
+                error = %e,
+                total_failures = failure_count,
+                "Failed to write audit log to database"
+            );
+            
+            // For critical actions, also log at WARN level for alerting systems
+            if is_critical {
+                tracing::warn!(
+                    stablecoin_id = ?entry.stablecoin_id,
+                    user_id = ?entry.user_id,
+                    action = %entry.action,
+                    tx_signature = ?entry.tx_signature,
+                    details = ?entry.details,
+                    error = %e,
+                    "CRITICAL: Audit log failure for sensitive operation - immediate attention required"
+                );
+            }
+        }
+    }
+}
+
+/// Convenience function to create an audit entry and log it
+pub async fn audit(
+    db: &Database,
+    stablecoin_id: Option<uuid::Uuid>,
+    user_id: Option<uuid::Uuid>,
+    action: &str,
+    tx_signature: Option<&str>,
+    details: Option<Value>,
+    ip_address: Option<&str>,
+) {
+    log_audit(db, AuditEntry {
+        stablecoin_id,
+        user_id,
+        action: action.to_string(),
+        tx_signature: tx_signature.map(|s| s.to_string()),
+        details,
+        ip_address: ip_address.map(|s| s.to_string()),
+    }).await;
+}
+
+/// Get the total number of audit log failures since server start
+pub fn get_audit_failure_count() -> u64 {
+    AUDIT_FAILURE_COUNT.load(Ordering::Relaxed)
+}
+
+/// Reset the audit failure counter (useful for monitoring/alerting)
+pub fn reset_audit_failure_count() -> u64 {
+    AUDIT_FAILURE_COUNT.swap(0, Ordering::Relaxed)
+}

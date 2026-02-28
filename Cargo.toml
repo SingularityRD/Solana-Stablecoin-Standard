@@ -4,6 +4,7 @@ members = [
     "backend",
     "cli",
     "admin-tui",
+    # "trident-tests",  # Requires OpenSSL and Perl for Windows builds
 ]
 resolver = "2"
 

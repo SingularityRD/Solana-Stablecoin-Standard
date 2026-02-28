@@ -8,6 +8,7 @@ use serde_json::json;
 use solana_sdk::pubkey::Pubkey;
 use sqlx::query_as;
 use uuid::Uuid;
+use validator::Validate;
 
 use crate::{
     error::{ApiError, ApiResult},
@@ -17,6 +18,19 @@ use crate::{
     AppState,
 };
 
+/// Helper function to convert validation errors to API error
+fn validation_error_to_api_error(e: validator::ValidationErrors) -> ApiError {
+    let error_messages: Vec<String> = e.field_errors()
+        .into_iter()
+        .flat_map(|(field, errors)| {
+            errors.iter().map(move |err| {
+                format!("{}: {}", field, err.message.as_ref().map(|m| m.as_ref()).unwrap_or("invalid"))
+            })
+        })
+        .collect();
+    ApiError::Validation(error_messages.join("; "))
+}
+
 /// Mint tokens to a recipient
 pub async fn mint(
     State(state): State<AppState>,
@@ -24,13 +38,12 @@ pub async fn mint(
     Path(id): Path<Uuid>,
     Json(req): Json<MintRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    // Parse and validate recipient pubkey
+    // Validate input using validator crate
+    req.validate().map_err(validation_error_to_api_error)?;
+    
+    // Parse and validate recipient pubkey (additional validation)
     let recipient: Pubkey = req.recipient.parse()
         .map_err(|_| ApiError::Validation("Invalid recipient pubkey".to_string()))?;
-    
-    if req.amount == 0 {
-        return Err(ApiError::Validation("Amount must be greater than 0".to_string()));
-    }
     
     // Get stablecoin
     let stablecoin = get_stablecoin(&state, id).await?;
@@ -73,9 +86,8 @@ pub async fn burn(
     Path(id): Path<Uuid>,
     Json(req): Json<BurnRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    if req.amount == 0 {
-        return Err(ApiError::Validation("Amount must be greater than 0".to_string()));
-    }
+    // Validate input using validator crate
+    req.validate().map_err(validation_error_to_api_error)?;
     
     // Get stablecoin
     let _stablecoin = get_stablecoin(&state, id).await?;
@@ -107,15 +119,14 @@ pub async fn transfer(
     Path(id): Path<Uuid>,
     Json(req): Json<TransferRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    // Parse and validate pubkeys
+    // Validate input using validator crate
+    req.validate().map_err(validation_error_to_api_error)?;
+    
+    // Parse and validate pubkeys (additional validation)
     let _from: Pubkey = req.from.parse()
         .map_err(|_| ApiError::Validation("Invalid from pubkey".to_string()))?;
     let _to: Pubkey = req.to.parse()
         .map_err(|_| ApiError::Validation("Invalid to pubkey".to_string()))?;
-    
-    if req.amount == 0 {
-        return Err(ApiError::Validation("Amount must be greater than 0".to_string()));
-    }
     
     // Get stablecoin
     let _stablecoin = get_stablecoin(&state, id).await?;

@@ -14,21 +14,25 @@ use crate::{
     models::{AuthResponse, LoginRequest, RegisterRequest, User, UserPublic},
     AppState,
 };
-use crate::utils::{generate_tokens, hash_password, verify_password, is_valid_email};
+use crate::utils::{generate_tokens, hash_password, verify_password};
 
 /// Register a new user
 pub async fn register(
     State(state): State<AppState>,
     Json(req): Json<RegisterRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    // Validate input
-    if !is_valid_email(&req.email) {
-        return Err(ApiError::Validation("Invalid email format".to_string()));
-    }
-    
-    if req.password.len() < 8 {
-        return Err(ApiError::Validation("Password must be at least 8 characters".to_string()));
-    }
+    // Validate input using validator crate
+    req.validate().map_err(|e| {
+        let error_messages: Vec<String> = e.field_errors()
+            .into_iter()
+            .flat_map(|(field, errors)| {
+                errors.iter().map(move |err| {
+                    format!("{}: {}", field, err.message.as_ref().map(|m| m.as_ref()).unwrap_or("invalid"))
+                })
+            })
+            .collect();
+        ApiError::Validation(error_messages.join("; "))
+    })?;
     
     // Check if user already exists
     let existing: Option<User> = query_as(
@@ -98,6 +102,19 @@ pub async fn login(
     State(state): State<AppState>,
     Json(req): Json<LoginRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    // Validate input using validator crate
+    req.validate().map_err(|e| {
+        let error_messages: Vec<String> = e.field_errors()
+            .into_iter()
+            .flat_map(|(field, errors)| {
+                errors.iter().map(move |err| {
+                    format!("{}: {}", field, err.message.as_ref().map(|m| m.as_ref()).unwrap_or("invalid"))
+                })
+            })
+            .collect();
+        ApiError::Validation(error_messages.join("; "))
+    })?;
+    
     // Find user
     let user: Option<User> = query_as(
         "SELECT * FROM users WHERE email = $1 AND is_active = true"

@@ -11,6 +11,7 @@ use solana_sdk::{
 };
 use sqlx::query_as;
 use uuid::Uuid;
+use validator::Validate;
 
 use crate::{
     error::{ApiError, ApiResult},
@@ -21,26 +22,29 @@ use crate::{
     AppState,
 };
 
+/// Helper function to convert validation errors to API error
+fn validation_error_to_api_error(e: validator::ValidationErrors) -> ApiError {
+    let error_messages: Vec<String> = e.field_errors()
+        .into_iter()
+        .flat_map(|(field, errors)| {
+            errors.iter().map(move |err| {
+                format!("{}: {}", field, err.message.as_ref().map(|m| m.as_ref()).unwrap_or("invalid"))
+            })
+        })
+        .collect();
+    ApiError::Validation(error_messages.join("; "))
+}
+
 /// Create a new stablecoin
 pub async fn create(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
     Json(req): Json<CreateStablecoinRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    // Validate input
-    if req.name.is_empty() || req.name.len() > 64 {
-        return Err(ApiError::Validation("Name must be 1-64 characters".to_string()));
-    }
+    // Validate input using validator crate
+    req.validate().map_err(validation_error_to_api_error)?;
     
-    if req.symbol.is_empty() || req.symbol.len() > 16 {
-        return Err(ApiError::Validation("Symbol must be 1-16 characters".to_string()));
-    }
-    
-    if req.preset > 2 {
-        return Err(ApiError::Validation("Preset must be 0 (SSS-1), 1 (SSS-2), or 2 (SSS-3)".to_string()));
-    }
-    
-    // Parse and validate asset mint
+    // Parse and validate asset mint (additional validation beyond base58 format)
     let asset_mint: Pubkey = req.asset_mint.parse()
         .map_err(|_| ApiError::Validation("Invalid asset_mint pubkey".to_string()))?;
     
@@ -124,6 +128,9 @@ pub async fn update(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateStablecoinRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    // Validate input using validator crate
+    req.validate().map_err(validation_error_to_api_error)?;
+    
     // Check ownership
     let existing: Stablecoin = query_as(
         "SELECT * FROM stablecoins WHERE id = $1"

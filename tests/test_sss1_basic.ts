@@ -128,4 +128,192 @@ describe("SSS-1: Basic Operations", () => {
 
     expect(true).to.be.true;
   });
+
+  it("Mints to multiple recipients", async () => {
+    const recipient1 = anchor.web3.Keypair.generate();
+    const recipient2 = anchor.web3.Keypair.generate();
+    const amount = new anchor.BN(100_000);
+
+    await program.methods
+      .mint(recipient1.publicKey, amount)
+      .accounts({
+        authority: authority.publicKey,
+        state: stablecoinPda,
+      })
+      .rpc();
+
+    await program.methods
+      .mint(recipient2.publicKey, amount)
+      .accounts({
+        authority: authority.publicKey,
+        state: stablecoinPda,
+      })
+      .rpc();
+
+    const state = await program.account.stablecoinState.fetch(stablecoinPda);
+    expect(state.totalSupply.toNumber()).to.be.greaterThan(500_000);
+  });
+
+  it("Burns partial amount", async () => {
+    const stateBefore = await program.account.stablecoinState.fetch(stablecoinPda);
+    const burnAmount = new anchor.BN(10_000);
+
+    await program.methods
+      .burn(burnAmount)
+      .accounts({
+        authority: authority.publicKey,
+        state: stablecoinPda,
+      })
+      .rpc();
+
+    const stateAfter = await program.account.stablecoinState.fetch(stablecoinPda);
+    expect(stateAfter.totalSupply.toNumber()).to.equal(
+      stateBefore.totalSupply.toNumber() - 10_000
+    );
+  });
+
+  it("Toggles pause multiple times", async () => {
+    // Pause
+    await program.methods
+      .pause()
+      .accounts({
+        authority: authority.publicKey,
+        state: stablecoinPda,
+      })
+      .rpc();
+
+    let state = await program.account.stablecoinState.fetch(stablecoinPda);
+    expect(state.paused).to.be.true;
+
+    // Unpause
+    await program.methods
+      .unpause()
+      .accounts({
+        authority: authority.publicKey,
+        state: stablecoinPda,
+      })
+      .rpc();
+
+    state = await program.account.stablecoinState.fetch(stablecoinPda);
+    expect(state.paused).to.be.false;
+
+    // Pause again
+    await program.methods
+      .pause()
+      .accounts({
+        authority: authority.publicKey,
+        state: stablecoinPda,
+      })
+      .rpc();
+
+    state = await program.account.stablecoinState.fetch(stablecoinPda);
+    expect(state.paused).to.be.true;
+
+    // Unpause for other tests
+    await program.methods
+      .unpause()
+      .accounts({
+        authority: authority.publicKey,
+        state: stablecoinPda,
+      })
+      .rpc();
+  });
+
+  it("Freezes multiple accounts", async () => {
+    const account1 = anchor.web3.Keypair.generate().publicKey;
+    const account2 = anchor.web3.Keypair.generate().publicKey;
+    const account3 = anchor.web3.Keypair.generate().publicKey;
+
+    await program.methods
+      .freezeAccount(account1)
+      .accounts({
+        authority: authority.publicKey,
+        state: stablecoinPda,
+      })
+      .rpc();
+
+    await program.methods
+      .freezeAccount(account2)
+      .accounts({
+        authority: authority.publicKey,
+        state: stablecoinPda,
+      })
+      .rpc();
+
+    await program.methods
+      .freezeAccount(account3)
+      .accounts({
+        authority: authority.publicKey,
+        state: stablecoinPda,
+      })
+      .rpc();
+
+    expect(true).to.be.true;
+  });
+
+  it("Thaws multiple accounts", async () => {
+    const account1 = anchor.web3.Keypair.generate().publicKey;
+    const account2 = anchor.web3.Keypair.generate().publicKey;
+
+    // Freeze first
+    await program.methods
+      .freezeAccount(account1)
+      .accounts({
+        authority: authority.publicKey,
+        state: stablecoinPda,
+      })
+      .rpc();
+
+    await program.methods
+      .freezeAccount(account2)
+      .accounts({
+        authority: authority.publicKey,
+        state: stablecoinPda,
+      })
+      .rpc();
+
+    // Then thaw
+    await program.methods
+      .thawAccount(account1)
+      .accounts({
+        authority: authority.publicKey,
+        state: stablecoinPda,
+      })
+      .rpc();
+
+    await program.methods
+      .thawAccount(account2)
+      .accounts({
+        authority: authority.publicKey,
+        state: stablecoinPda,
+      })
+      .rpc();
+
+    expect(true).to.be.true;
+  });
+
+  it("Mints large amount", async () => {
+    const recipient = anchor.web3.Keypair.generate();
+    const largeAmount = new anchor.BN("1000000000000"); // 1 trillion
+
+    await program.methods
+      .mint(recipient.publicKey, largeAmount)
+      .accounts({
+        authority: authority.publicKey,
+        state: stablecoinPda,
+      })
+      .rpc();
+
+    const state = await program.account.stablecoinState.fetch(stablecoinPda);
+    expect(state.totalSupply.toNumber()).to.be.greaterThan(1_000_000_000_000);
+  });
+
+  it("Verifies state persistence", async () => {
+    const state = await program.account.stablecoinState.fetch(stablecoinPda);
+    
+    expect(state.authority.toString()).to.equal(authority.publicKey.toString());
+    expect(state.preset).to.equal(PRESET_SSS_1);
+    expect(state.complianceEnabled).to.be.false;
+    expect(state.bump).to.be.a("number");
+  });
 });

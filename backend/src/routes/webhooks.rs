@@ -7,6 +7,7 @@ use axum::{
 use serde_json::json;
 use sqlx::query_as;
 use uuid::Uuid;
+use validator::Validate;
 
 use crate::{
     error::{ApiError, ApiResult},
@@ -14,6 +15,19 @@ use crate::{
     app_middleware::auth::AuthUser,
     AppState,
 };
+
+/// Helper function to convert validation errors to API error
+fn validation_error_to_api_error(e: validator::ValidationErrors) -> ApiError {
+    let error_messages: Vec<String> = e.field_errors()
+        .into_iter()
+        .flat_map(|(field, errors)| {
+            errors.iter().map(move |err| {
+                format!("{}: {}", field, err.message.as_ref().map(|m| m.as_ref()).unwrap_or("invalid"))
+            })
+        })
+        .collect();
+    ApiError::Validation(error_messages.join("; "))
+}
 
 /// Handle incoming webhook events (from external services)
 pub async fn handler(
@@ -36,10 +50,8 @@ pub async fn create(
     Path(id): Path<Uuid>,
     Json(req): Json<CreateWebhookRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    // Validate URL
-    if req.url.is_empty() || !req.url.starts_with("http") {
-        return Err(ApiError::Validation("Invalid webhook URL".to_string()));
-    }
+    // Validate input using validator crate
+    req.validate().map_err(validation_error_to_api_error)?;
     
     // Get stablecoin and check ownership
     let _stablecoin = get_stablecoin_for_admin(&state, id, &user).await?;

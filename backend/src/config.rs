@@ -9,11 +9,15 @@ pub struct AppConfig {
     pub redis_url: Option<String>,
     pub solana_rpc_url: String,
     pub program_id: Pubkey,
+    /// Authority keypair in base58 format (optional - can be set via API)
+    pub authority_keypair: Option<String>,
     pub jwt_secret: String,
     pub jwt_expiry: u64,
     pub rate_limit_requests: u32,
     pub rate_limit_window_secs: u64,
     pub log_level: String,
+    /// Cluster name for explorer URLs (devnet, testnet, mainnet)
+    pub cluster: String,
 }
 
 impl AppConfig {
@@ -35,6 +39,9 @@ impl AppConfig {
         let program_id = program_id_str
             .parse::<Pubkey>()
             .with_context(|| format!("Invalid PROGRAM_ID: {}", program_id_str))?;
+        
+        // Authority keypair is optional - can be loaded dynamically
+        let authority_keypair = env::var("AUTHORITY_KEYPAIR").ok();
         
         let jwt_secret = env::var("JWT_SECRET")
             .unwrap_or_else(|_| {
@@ -60,17 +67,28 @@ impl AppConfig {
         let log_level = env::var("LOG_LEVEL")
             .unwrap_or_else(|_| "info".to_string());
         
+        // Determine cluster from RPC URL
+        let cluster = if solana_rpc_url.contains("mainnet") {
+            "mainnet".to_string()
+        } else if solana_rpc_url.contains("testnet") {
+            "testnet".to_string()
+        } else {
+            "devnet".to_string()
+        };
+        
         Ok(Self {
             server_addr,
             database_url,
             redis_url,
             solana_rpc_url,
             program_id,
+            authority_keypair,
             jwt_secret,
             jwt_expiry,
             rate_limit_requests,
             rate_limit_window_secs,
             log_level,
+            cluster,
         })
     }
 }

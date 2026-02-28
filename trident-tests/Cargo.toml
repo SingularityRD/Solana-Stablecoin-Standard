@@ -1,0 +1,47 @@
+[package]
+name = "sss-token-fuzz"
+version = "0.1.0"
+description = "Fuzz tests for Solana Stablecoin Standard using Trident framework"
+edition = "2021"
+publish = false
+
+[dependencies]
+# Trident Fuzz Framework
+trident-fuzz = "0.12.0"
+
+# Anchor
+anchor-lang = { workspace = true }
+
+# Program under test
+sss-token = { path = "../programs/sss-token", features = ["no-entrypoint"] }
+
+# Solana
+solana-program = { workspace = true }
+solana-sdk = { workspace = true }
+solana-client = { workspace = true }
+
+# Fuzzing
+arbitrary = { version = "1.3", features = ["derive"] }
+
+[[bin]]
+name = "fuzz_initialize"
+path = "fuzz_initialize.rs"
+
+[[bin]]
+name = "fuzz_mint"
+path = "fuzz_mint.rs"
+
+[[bin]]
+name = "fuzz_burn"
+path = "fuzz_burn.rs"
+
+[[bin]]
+name = "fuzz_transfer"
+path = "fuzz_transfer.rs"
+
+[[bin]]
+name = "fuzz_roles"
+path = "fuzz_roles.rs"
+
+[features]
+default = []

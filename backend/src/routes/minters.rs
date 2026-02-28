@@ -8,13 +8,28 @@ use serde_json::json;
 use solana_sdk::pubkey::Pubkey;
 use sqlx::query_as;
 use uuid::Uuid;
+use validator::Validate;
 
 use crate::{
     error::{ApiError, ApiResult},
     models::{AddMinterRequest, MinterQuota, SetQuotaRequest, User},
     app_middleware::auth::AuthUser,
+    utils::audit,
     AppState,
 };
+
+/// Helper function to convert validation errors to API error
+fn validation_error_to_api_error(e: validator::ValidationErrors) -> ApiError {
+    let error_messages: Vec<String> = e.field_errors()
+        .into_iter()
+        .flat_map(|(field, errors)| {
+            errors.iter().map(move |err| {
+                format!("{}: {}", field, err.message.as_ref().map(|m| m.as_ref()).unwrap_or("invalid"))
+            })
+        })
+        .collect();
+    ApiError::Validation(error_messages.join("; "))
+}
 
 /// Add a minter with optional quota
 pub async fn add(
@@ -23,7 +38,10 @@ pub async fn add(
     Path(id): Path<Uuid>,
     Json(req): Json<AddMinterRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    // Parse and validate minter pubkey
+    // Validate input using validator crate
+    req.validate().map_err(validation_error_to_api_error)?;
+    
+    // Parse and validate minter pubkey (additional validation)
     let minter_pubkey: Pubkey = req.account.parse()
         .map_err(|_| ApiError::Validation("Invalid minter pubkey".to_string()))?;
     
@@ -56,7 +74,8 @@ pub async fn add(
     .map_err(|e| ApiError::Database(e.to_string()))?;
     
     // Log audit
-    let _ = state.db.log_audit(
+    audit(
+        &state.db,
         Some(id),
         Some(user.id),
         "minter.add",
@@ -92,7 +111,8 @@ pub async fn remove(
     }
     
     // Log audit
-    let _ = state.db.log_audit(
+    audit(
+        &state.db,
         Some(id),
         Some(user.id),
         "minter.remove",
@@ -131,6 +151,9 @@ pub async fn set_quota(
     Path((id, account)): Path<(Uuid, String)>,
     Json(req): Json<SetQuotaRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    // Validate input using validator crate
+    req.validate().map_err(validation_error_to_api_error)?;
+    
     // Get stablecoin and check ownership
     let _stablecoin = get_stablecoin_for_admin(&state, id, &user).await?;
     
@@ -152,7 +175,8 @@ pub async fn set_quota(
     .ok_or_else(|| ApiError::NotFound("Minter not found".to_string()))?;
     
     // Log audit
-    let _ = state.db.log_audit(
+    audit(
+        &state.db,
         Some(id),
         Some(user.id),
         "minter.set_quota",

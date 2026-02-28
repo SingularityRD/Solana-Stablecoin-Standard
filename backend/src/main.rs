@@ -24,15 +24,20 @@ mod services;
 mod solana;
 mod utils;
 
+#[cfg(test)]
+mod tests;
+
 use config::AppConfig;
 use db::Database;
-use services::SolanaService;
+use services::{SolanaService, MintBurnService, ComplianceService};
 
 #[derive(Clone)]
 pub struct AppState {
     pub config: Arc<AppConfig>,
     pub db: Database,
     pub solana: Arc<SolanaService>,
+    pub mint_burn: Arc<MintBurnService>,
+    pub compliance: Arc<ComplianceService>,
 }
 
 #[tokio::main]
@@ -67,11 +72,47 @@ async fn main() -> anyhow::Result<()> {
     let solana = Arc::new(SolanaService::new(&config.solana_rpc_url, config.program_id).await?);
     tracing::info!("Solana service initialized");
 
+    // Initialize Mint/Burn service
+    let mut mint_burn = MintBurnService::new(
+        "backend".to_string(),
+        solana.clone(),
+    );
+    mint_burn.set_cluster(config.cluster.clone());
+    
+    // Initialize Compliance service
+    let mut compliance = ComplianceService::new(
+        "".to_string(), // API key can be set via environment
+        solana.clone(),
+    );
+    compliance.set_cluster(config.cluster.clone());
+
+    // Load authority keypair if configured
+    if let Some(keypair_b58) = &config.authority_keypair {
+        match crate::solana::parse_keypair(keypair_b58) {
+            Ok(keypair) => {
+                tracing::info!("Loaded authority keypair: {}", keypair.pubkey());
+                solana.set_keypair(keypair.clone()).await;
+                mint_burn.set_authority_keypair(keypair.clone());
+                compliance.set_authority_keypair(keypair);
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load authority keypair: {}", e);
+            }
+        }
+    } else {
+        tracing::warn!("AUTHORITY_KEYPAIR not set - transactions will fail until loaded via API");
+    }
+
+    let mint_burn = Arc::new(mint_burn);
+    let compliance = Arc::new(compliance);
+
     // Create app state
     let state = AppState {
         config: config.clone(),
         db,
         solana,
+        mint_burn,
+        compliance,
     };
 
     // Build router with middleware
@@ -164,9 +205,9 @@ async fn main() -> anyhow::Result<()> {
         .with_state(state);
 
     let addr: SocketAddr = config.server_addr.parse()
-        .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 3001)));
+        .unwrap_or_else(|_| SocketAddr::from(([0,0,0,0], 3001)));
     
-    tracing::info!("🚀 Server listening on {}", addr);
+    tracing::info!("Server listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;

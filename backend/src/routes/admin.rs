@@ -8,14 +8,29 @@ use serde_json::json;
 use solana_sdk::pubkey::Pubkey;
 use sqlx::query_as;
 use uuid::Uuid;
+use validator::Validate;
 
 use crate::{
     error::{ApiError, ApiResult},
     models::{SeizeRequest, TransactionResponse, User},
     app_middleware::auth::AuthUser,
     solana::explorer_url,
+    utils::audit,
     AppState,
 };
+
+/// Helper function to convert validation errors to API error
+fn validation_error_to_api_error(e: validator::ValidationErrors) -> ApiError {
+    let error_messages: Vec<String> = e.field_errors()
+        .into_iter()
+        .flat_map(|(field, errors)| {
+            errors.iter().map(move |err| {
+                format!("{}: {}", field, err.message.as_ref().map(|m| m.as_ref()).unwrap_or("invalid"))
+            })
+        })
+        .collect();
+    ApiError::Validation(error_messages.join("; "))
+}
 
 /// Pause all operations on a stablecoin
 pub async fn pause(
@@ -30,7 +45,8 @@ pub async fn pause(
     let tx_signature = format!("pause_{}", id);
     
     // Log audit
-    let _ = state.db.log_audit(
+    audit(
+        &state.db,
         Some(id),
         Some(user.id),
         "stablecoin.pause",
@@ -59,7 +75,8 @@ pub async fn unpause(
     let tx_signature = format!("unpause_{}", id);
     
     // Log audit
-    let _ = state.db.log_audit(
+    audit(
+        &state.db,
         Some(id),
         Some(user.id),
         "stablecoin.unpause",
@@ -81,7 +98,11 @@ pub async fn freeze(
     AuthUser(user): AuthUser,
     Path((id, account)): Path<(Uuid, String)>,
 ) -> ApiResult<impl IntoResponse> {
-    // Parse and validate account pubkey
+    // Validate account pubkey format
+    crate::models::validate_solana_pubkey(&account)
+        .map_err(|_| ApiError::Validation("Invalid account pubkey".to_string()))?;
+    
+    // Parse and validate account pubkey (additional validation)
     let _account_pubkey: Pubkey = account.parse()
         .map_err(|_| ApiError::Validation("Invalid account pubkey".to_string()))?;
     
@@ -92,7 +113,8 @@ pub async fn freeze(
     let tx_signature = format!("freeze_{}_{}", id, &account[..8]);
     
     // Log audit
-    let _ = state.db.log_audit(
+    audit(
+        &state.db,
         Some(id),
         Some(user.id),
         "stablecoin.freeze",
@@ -114,7 +136,11 @@ pub async fn thaw(
     AuthUser(user): AuthUser,
     Path((id, account)): Path<(Uuid, String)>,
 ) -> ApiResult<impl IntoResponse> {
-    // Parse and validate account pubkey
+    // Validate account pubkey format
+    crate::models::validate_solana_pubkey(&account)
+        .map_err(|_| ApiError::Validation("Invalid account pubkey".to_string()))?;
+    
+    // Parse and validate account pubkey (additional validation)
     let _account_pubkey: Pubkey = account.parse()
         .map_err(|_| ApiError::Validation("Invalid account pubkey".to_string()))?;
     
@@ -125,7 +151,8 @@ pub async fn thaw(
     let tx_signature = format!("thaw_{}_{}", id, &account[..8]);
     
     // Log audit
-    let _ = state.db.log_audit(
+    audit(
+        &state.db,
         Some(id),
         Some(user.id),
         "stablecoin.thaw",
@@ -148,15 +175,14 @@ pub async fn seize(
     Path(id): Path<Uuid>,
     Json(req): Json<SeizeRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    // Parse and validate pubkeys
+    // Validate input using validator crate (includes pubkey and amount validation)
+    req.validate().map_err(validation_error_to_api_error)?;
+    
+    // Parse and validate pubkeys (additional validation)
     let _from_pubkey: Pubkey = req.from_account.parse()
         .map_err(|_| ApiError::Validation("Invalid from_account pubkey".to_string()))?;
     let _to_pubkey: Pubkey = req.to_account.parse()
         .map_err(|_| ApiError::Validation("Invalid to_account pubkey".to_string()))?;
-    
-    if req.amount == 0 {
-        return Err(ApiError::Validation("Amount must be greater than 0".to_string()));
-    }
     
     // Get stablecoin and check ownership
     let stablecoin = get_stablecoin_for_admin(&state, id, &user).await?;
@@ -170,7 +196,8 @@ pub async fn seize(
     let tx_signature = format!("seize_{}_{}_{}", id, &req.from_account[..8], req.amount);
     
     // Log audit
-    let _ = state.db.log_audit(
+    audit(
+        &state.db,
         Some(id),
         Some(user.id),
         "stablecoin.seize",

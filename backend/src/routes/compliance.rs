@@ -4,23 +4,31 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use solana_sdk::pubkey::Pubkey;
 use sqlx::query_as;
 use uuid::Uuid;
+use validator::Validate;
 
 use crate::{
     error::{ApiError, ApiResult},
-    models::{BlacklistEntry, ScreeningResult, User},
+    models::{BlacklistAddRequest, BlacklistEntry, ScreeningResult, User},
     app_middleware::auth::AuthUser,
+    utils::audit,
     AppState,
 };
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct BlacklistAddRequestModel {
-    pub account: String,
-    pub reason: String,
+/// Helper function to convert validation errors to API error
+fn validation_error_to_api_error(e: validator::ValidationErrors) -> ApiError {
+    let error_messages: Vec<String> = e.field_errors()
+        .into_iter()
+        .flat_map(|(field, errors)| {
+            errors.iter().map(move |err| {
+                format!("{}: {}", field, err.message.as_ref().map(|m| m.as_ref()).unwrap_or("invalid"))
+            })
+        })
+        .collect();
+    ApiError::Validation(error_messages.join("; "))
 }
 
 /// Add an account to the blacklist
@@ -28,9 +36,12 @@ pub async fn blacklist_add(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
     Path(id): Path<Uuid>,
-    Json(req): Json<BlacklistAddRequestModel>,
+    Json(req): Json<BlacklistAddRequest>,
 ) -> ApiResult<impl IntoResponse> {
-    // Parse and validate account pubkey
+    // Validate input using validator crate
+    req.validate().map_err(validation_error_to_api_error)?;
+    
+    // Parse and validate account pubkey (additional validation)
     let account_pubkey: Pubkey = req.account.parse()
         .map_err(|_| ApiError::Validation("Invalid account pubkey".to_string()))?;
     
@@ -63,7 +74,8 @@ pub async fn blacklist_add(
     .map_err(|e| ApiError::Database(e.to_string()))?;
     
     // Log audit
-    let _ = state.db.log_audit(
+    audit(
+        &state.db,
         Some(id),
         Some(user.id),
         "blacklist.add",
@@ -99,7 +111,8 @@ pub async fn blacklist_remove(
     }
     
     // Log audit
-    let _ = state.db.log_audit(
+    audit(
+        &state.db,
         Some(id),
         Some(user.id),
         "blacklist.remove",
@@ -136,7 +149,11 @@ pub async fn screen(
     State(state): State<AppState>,
     Path((id, address)): Path<(Uuid, String)>,
 ) -> ApiResult<impl IntoResponse> {
-    // Parse and validate address
+    // Validate address using the model's pubkey validation
+    crate::models::validate_solana_pubkey(&address)
+        .map_err(|_| ApiError::Validation("Invalid address pubkey".to_string()))?;
+    
+    // Parse and validate address (additional validation)
     let _address_pubkey: Pubkey = address.parse()
         .map_err(|_| ApiError::Validation("Invalid address pubkey".to_string()))?;
     

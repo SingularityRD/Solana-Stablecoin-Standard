@@ -103,4 +103,31 @@ impl From<jsonwebtoken::errors::Error> for ApiError {
     }
 }
 
+impl From<solana_sdk::pubkey::ParsePubkeyError> for ApiError {
+    fn from(err: solana_sdk::pubkey::ParsePubkeyError) -> Self {
+        ApiError::BadRequest(format!("Invalid pubkey: {}", err))
+    }
+}
+
+impl From<solana_client::client_error::ClientError> for ApiError {
+    fn from(err: solana_client::client_error::ClientError) -> Self {
+        ApiError::Solana(err.to_string())
+    }
+}
+
+impl From<anchor_lang::error::Error> for ApiError {
+    fn from(err: anchor_lang::error::Error) -> Self {
+        // Parse Anchor error code for better error messages
+        let error_msg = match err {
+            anchor_lang::error::Error::AnchorError(e) => {
+                format!("Anchor error: {} (code: {:?})", e.error_msg, e.error_code)
+            }
+            anchor_lang::error::Error::ProgramError(e) => {
+                format!("Program error: {:?}", e)
+            }
+        };
+        ApiError::Solana(error_msg)
+    }
+}
+
 pub type ApiResult<T> = Result<T, ApiError>;
