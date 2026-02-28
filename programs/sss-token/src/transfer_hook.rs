@@ -30,22 +30,27 @@ pub fn enforce_transfer(ctx: Context<TransferHook>, _amount: u64) -> Result<()> 
     Ok(())
 }
 
+/// TransferHook accounts for SPL Token-2022 transfer hook interface.
+/// Note: This uses manual account validation because the SPL transfer hook
+/// interface requires specific account ordering that doesn't fit Anchor's
+/// standard Accounts derive pattern.
 #[derive(Accounts)]
+#[instruction(amount: u64)]
 pub struct TransferHook<'info> {
-    /// CHECK: source
+    /// CHECK: Source token account
     pub source: AccountInfo<'info>,
-    /// CHECK: mint
+    /// CHECK: Mint account
     pub mint: AccountInfo<'info>,
-    /// CHECK: destination
+    /// CHECK: Destination token account
     pub destination: AccountInfo<'info>,
-    /// CHECK: owner
+    /// CHECK: Owner of source account
     pub owner: AccountInfo<'info>,
-    /// CHECK: extra meta
+    /// CHECK: Extra account meta list for additional accounts
     pub extra_account_meta_list: AccountInfo<'info>,
     pub state: Account<'info, StablecoinState>,
-    /// CHECK: sender blacklist
+    /// CHECK: Sender blacklist entry (may not exist)
     pub sender_blacklist: AccountInfo<'info>,
-    /// CHECK: recipient blacklist
+    /// CHECK: Recipient blacklist entry (may not exist)
     pub recipient_blacklist: AccountInfo<'info>,
 }
 

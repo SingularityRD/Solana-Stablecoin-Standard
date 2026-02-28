@@ -1,4 +1,3 @@
-use solana_sdk::pubkey::Pubkey;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -20,8 +19,6 @@ impl ComplianceService {
 
     /// Calls external API (Chainalysis/Elliptic) to screen an address
     pub async fn screen_address(&self, address: &str) -> Result<ScreeningResult, anyhow::Error> {
-        let _parsed = address.parse::<Pubkey>()?;
-        
         // Mocking an external API call to a compliance provider
         tracing::debug!("Screening address {} with provider", address);
         

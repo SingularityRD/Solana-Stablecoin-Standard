@@ -1,3 +1,4 @@
+use crate::constants::ROLE_SEED;
 use crate::error::StablecoinError;
 use crate::events::*;
 use crate::math::update_supply;
@@ -13,10 +14,15 @@ pub struct Burn<'info> {
 
     #[account(
         mut,
-        has_one = authority @ StablecoinError::Unauthorized,
         has_one = asset_mint
     )]
     pub state: Account<'info, StablecoinState>,
+
+    #[account(
+        seeds = [ROLE_SEED, state.key().as_ref(), authority.key().as_ref()],
+        bump,
+    )]
+    pub role_assignment: Option<Account<'info, RoleAssignment>>,
 
     #[account(mut)]
     pub asset_mint: InterfaceAccount<'info, TokenMint>,
@@ -30,6 +36,16 @@ pub struct Burn<'info> {
 pub fn handler(ctx: Context<Burn>, amount: u64) -> Result<()> {
     require!(amount > 0, StablecoinError::ZeroAmount);
     require!(!ctx.accounts.state.paused, StablecoinError::VaultPaused);
+
+    // RBAC Check: Must be Master (state.authority) or have Burner role
+    let is_master = ctx.accounts.authority.key() == ctx.accounts.state.authority;
+    let is_burner = if let Some(assignment) = &ctx.accounts.role_assignment {
+        assignment.role == Role::Burner || assignment.role == Role::Master
+    } else {
+        false
+    };
+
+    require!(is_master || is_burner, StablecoinError::Unauthorized);
 
     let state = &mut ctx.accounts.state;
     state.total_supply = update_supply(state.total_supply, amount, false)?;

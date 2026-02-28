@@ -52,3 +52,43 @@ pub fn handler(ctx: Context<AssignRole>, role: Role) -> Result<()> {
     });
     Ok(())
 }
+
+#[derive(Accounts)]
+pub struct RevokeRole<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    #[account(
+        has_one = authority @ StablecoinError::Unauthorized
+    )]
+    pub state: Account<'info, StablecoinState>,
+
+    #[account(
+        mut,
+        close = authority,
+        seeds = [ROLE_SEED, state.key().as_ref(), assignment.account.as_ref()],
+        bump = assignment.bump
+    )]
+    pub assignment: Account<'info, RoleAssignment>,
+}
+
+pub fn revoke_handler(ctx: Context<RevokeRole>) -> Result<()> {
+    let role_name = match ctx.accounts.assignment.role {
+        Role::Master => "Master",
+        Role::Minter => "Minter",
+        Role::Burner => "Burner",
+        Role::Blacklister => "Blacklister",
+        Role::Pauser => "Pauser",
+        Role::Seizer => "Seizer",
+    };
+
+    let account = ctx.accounts.assignment.account;
+
+    emit!(RoleRevoked {
+        stablecoin: ctx.accounts.state.key(),
+        role: role_name.to_string(),
+        account,
+    });
+
+    Ok(())
+}

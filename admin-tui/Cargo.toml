@@ -9,13 +9,41 @@ license.workspace = true
 name = "sss-tui"
 path = "src/main.rs"
 
+[features]
+# Default is demo mode (no Solana integration)
+# To enable full Solana integration, compile with: cargo build --features solana
+# Note: On Windows, this requires OpenSSL. Install via:
+#   - vcpkg: vcpkg install openssl:x64-windows
+#   - Or install Perl and ensure it's in PATH for vendored build
+default = []
+solana = ["dep:anchor-client", "dep:anchor-lang", "dep:solana-client", "dep:solana-sdk", "dep:openssl"]
+
 [dependencies]
+# TUI
 ratatui.workspace = true
 crossterm.workspace = true
+
+# Async runtime
+tokio = { workspace = true, features = ["full", "macros", "rt-multi-thread", "sync", "time"] }
+
+# Serialization
 serde.workspace = true
 serde_json.workspace = true
-tokio.workspace = true
-anchor-client.workspace = true
-solana-client.workspace = true
+
+# Utilities
 anyhow.workspace = true
+thiserror.workspace = true
 chrono.workspace = true
+
+# Encoding
+bs58 = "0.5"
+base64 = "0.22"
+
+# Solana dependencies (optional)
+anchor-client = { workspace = true, optional = true }
+anchor-lang = { workspace = true, optional = true }
+solana-client = { workspace = true, optional = true }
+solana-sdk = { workspace = true, optional = true }
+
+# OpenSSL for Windows (vendored - only used with solana feature)
+openssl = { workspace = true, optional = true }

@@ -12,7 +12,7 @@ pub struct AllowlistEntry {
     pub bump: u8,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq)]
 pub enum AllowlistScope {
     TransferIn,
     TransferOut,

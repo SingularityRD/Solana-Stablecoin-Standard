@@ -1,21 +1,50 @@
-use anchor_client::{Client, Cluster};
+use anchor_client::{Client, Cluster, Program};
 use clap::{Parser, Subcommand};
-use solana_sdk::pubkey::Pubkey;
-use solana_sdk::signature::read_keypair_file;
+use solana_sdk::{
+    pubkey::Pubkey,
+    signature::{read_keypair_file, Keypair},
+    signer::Signer,
+    commitment_config::CommitmentConfig,
+};
+use std::rc::Rc;
+use std::time::Duration;
 
 mod commands;
+mod config;
+mod error;
+mod instructions;
+
+use config::SssConfig;
+use error::CliError;
+
+/// Program ID for the SSS Token program
+const PROGRAM_ID: &str = "SSSToken11111111111111111111111111111111111";
+
+/// PDA seeds
+const STABLECOIN_SEED: &[u8] = b"stablecoin";
+const ROLE_SEED: &[u8] = b"role";
+const MINTER_SEED: &[u8] = b"minter";
+const BLACKLIST_SEED: &[u8] = b"blacklist";
 
 #[derive(Parser)]
 #[command(name = "sss-token")]
-#[command(about = "Solana Stablecoin Standard CLI")]
+#[command(about = "Solana Stablecoin Standard CLI - Production Ready", version)]
 struct Cli {
-    /// Solana RPC URL to connect to (e.g., devnet, mainnet-beta, or localnet)
-    #[arg(long, default_value = "https://api.devnet.solana.com")]
+    /// Solana RPC URL (or set SSS_RPC_URL env var)
+    #[arg(long, env = "SSS_RPC_URL", default_value = "https://api.devnet.solana.com")]
     url: String,
 
-    /// Path to the local Solana keypair file used for signing transactions
-    #[arg(long, default_value = "~/.config/solana/id.json")]
+    /// Path to keypair file (or set SSS_KEYPAIR_PATH env var)
+    #[arg(long, env = "SSS_KEYPAIR_PATH", default_value = "~/.config/solana/id.json")]
     keypair: String,
+
+    /// Commitment level
+    #[arg(long, default_value = "confirmed")]
+    commitment: String,
+
+    /// Path to config file
+    #[arg(long, default_value = "sss-config.toml")]
+    config: String,
 
     /// The administrative command to execute
     #[command(subcommand)]
@@ -24,303 +53,493 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Initialize a new stablecoin instance with a specific preset and metadata
+    /// Initialize a new stablecoin instance
     Init {
-        /// The SSS preset to use (1 for SSS-1 Minimal, 2 for SSS-2 Compliant)
         #[arg(long, default_value = "1")]
         preset: u8,
-        /// The full name of the stablecoin (e.g., "Institutional USD")
         #[arg(long)]
         name: String,
-        /// The ticker symbol for the stablecoin (e.g., "iUSD")
         #[arg(long)]
         symbol: String,
-        /// The URI pointing to the off-chain metadata JSON file
         #[arg(long)]
         uri: String,
-        /// The number of decimal places for the token (default is 6)
         #[arg(long, default_value = "6")]
         decimals: u8,
+        #[arg(long)]
+        asset_mint: Option<String>,
     },
-    /// Mint new tokens to a specified recipient account
+
+    /// Mint tokens to a recipient
     Mint {
-        /// The public key of the recipient account
         recipient: String,
-        /// The amount of tokens to mint (in base units)
         amount: u64,
+        #[arg(long)]
+        stablecoin: Option<String>,
     },
-    /// Burn tokens from the caller's account to reduce total supply
+
+    /// Burn tokens
     Burn {
-        /// The amount of tokens to burn (in base units)
         amount: u64,
+        #[arg(long)]
+        from: Option<String>,
+        #[arg(long)]
+        stablecoin: Option<String>,
     },
-    /// Freeze a specific token account, preventing any further transfers
+
+    /// Freeze a token account
     Freeze {
-        /// The public key of the account to freeze
         account: String,
+        #[arg(long)]
+        stablecoin: Option<String>,
     },
-    /// Thaw a previously frozen token account, re-enabling transfers
+
+    /// Thaw a frozen account
     Thaw {
-        /// The public key of the account to thaw
         account: String,
+        #[arg(long)]
+        stablecoin: Option<String>,
     },
-    /// Pause all token operations (transfers, mints, burns) globally
-    Pause,
-    /// Resume all token operations globally after a pause
-    Unpause,
-    /// Manage the compliance blacklist for SSS-2 tokens
+
+    /// Pause all operations
+    Pause {
+        #[arg(long)]
+        stablecoin: Option<String>,
+    },
+
+    /// Unpause operations
+    Unpause {
+        #[arg(long)]
+        stablecoin: Option<String>,
+    },
+
+    /// Manage blacklist
     Blacklist {
         #[command(subcommand)]
         command: BlacklistCommands,
     },
-    /// Manage authorized minters and their respective minting quotas
+
+    /// Manage minters
     Minters {
         #[command(subcommand)]
         command: MinterCommands,
     },
-    /// Seize tokens from a blacklisted account and transfer them to a recovery account (SSS-2 only)
+
+    /// Seize tokens from blacklisted account
     Seize {
-        /// The public key of the blacklisted account to seize tokens from
         account: String,
-        /// The public key of the destination account for the seized tokens
         #[arg(long)]
         to: String,
-        /// The amount of tokens to seize (in base units)
         amount: u64,
+        #[arg(long)]
+        stablecoin: Option<String>,
     },
-    /// Transfer the master authority of the stablecoin to a new account
+
+    /// Transfer master authority
     TransferAuthority {
-        /// The public key of the new master authority
         new_authority: String,
+        #[arg(long)]
+        stablecoin: Option<String>,
     },
-    /// Assign a specific administrative role to an account
+
+    /// Assign a role to an account
     AssignRole {
-        /// The name of the role to assign (e.g., "Minter", "Blacklister")
         role: String,
-        /// The public key of the account to receive the role
         account: String,
+        #[arg(long)]
+        stablecoin: Option<String>,
     },
-    /// Display the current operational status and configuration of the stablecoin
+
+    /// Revoke a role from an account
+    RevokeRole {
+        account: String,
+        #[arg(long)]
+        stablecoin: Option<String>,
+    },
+
+    /// Display stablecoin status
     Status {
-        /// Optional file path to export the status information in JSON format
+        #[arg(long)]
+        stablecoin: Option<String>,
         #[arg(long)]
         export: Option<String>,
     },
-    /// Display the current total circulating supply of the stablecoin
-    Supply,
-    /// List all current token holders and their balances
+
+    /// Display total supply
+    Supply {
+        #[arg(long)]
+        stablecoin: Option<String>,
+    },
+
+    /// List token holders
     Holders {
-        /// Minimum balance threshold for including a holder in the list
         #[arg(long, default_value = "0")]
         min_balance: u64,
+        #[arg(long)]
+        stablecoin: Option<String>,
     },
-    /// View and filter the on-chain audit logs for administrative actions
+
+    /// View audit logs
     AuditLog {
-        /// Filter logs by a specific action type
         #[arg(long)]
         action: Option<String>,
-        /// Filter logs by the initiator's public key
         #[arg(long)]
         from: Option<String>,
-        /// Filter logs by the target's public key
         #[arg(long)]
         to: Option<String>,
-        /// Output format for the logs (text or json)
         #[arg(long, default_value = "text")]
         format: String,
-        /// Optional file path to save the audit log output
         #[arg(long)]
         output: Option<String>,
+    },
+
+    /// Derive PDAs for a stablecoin
+    Derive {
+        #[arg(long)]
+        stablecoin: Option<String>,
     },
 }
 
 #[derive(Subcommand)]
 pub enum BlacklistCommands {
-    /// Add a specific account to the compliance blacklist with a reason
     Add {
-        /// The public key of the account to blacklist
         account: String,
-        /// The reason for blacklisting (e.g., "Regulatory requirement")
         #[arg(long)]
         reason: String,
+        #[arg(long)]
+        stablecoin: Option<String>,
     },
-    /// Remove a specific account from the compliance blacklist
     Remove {
-        /// The public key of the account to remove from the blacklist
         account: String,
+        #[arg(long)]
+        stablecoin: Option<String>,
     },
-    /// List all currently blacklisted accounts and their associated reasons
-    List,
+    List {
+        #[arg(long)]
+        stablecoin: Option<String>,
+    },
+    Check {
+        account: String,
+        #[arg(long)]
+        stablecoin: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
 pub enum MinterCommands {
-    /// Authorize a new account as a minter with an optional quota
     Add {
-        /// The public key of the account to authorize as a minter
         account: String,
-        /// The maximum amount of tokens this minter is allowed to mint
         #[arg(long, default_value = "0")]
         quota: u64,
+        #[arg(long)]
+        stablecoin: Option<String>,
     },
-    /// Revoke minting authority from a specific account
     Remove {
-        /// The public key of the account to revoke minting authority from
         account: String,
+        #[arg(long)]
+        stablecoin: Option<String>,
     },
-    /// List all currently authorized minters and their remaining quotas
-    List,
-    /// Retrieve detailed information about a specific minter's status and quota
+    List {
+        #[arg(long)]
+        stablecoin: Option<String>,
+    },
     Info {
-        /// The public key of the minter to query
         account: String,
+        #[arg(long)]
+        stablecoin: Option<String>,
     },
-    /// Update the minting quota for an existing authorized minter
     SetQuota {
-        /// The public key of the minter whose quota is being updated
         account: String,
-        /// The new maximum amount of tokens this minter is allowed to mint
         quota: u64,
+        #[arg(long)]
+        stablecoin: Option<String>,
     },
+}
+
+fn expand_tilde(path: &str) -> String {
+    if path.starts_with('~') {
+        if let Some(home) = std::env::var("HOME").ok().or_else(|| std::env::var("USERPROFILE").ok()) {
+            return path.replacen('~', &home, 1);
+        }
+    }
+    path.to_string()
+}
+
+fn parse_pubkey(s: &str) -> Result<Pubkey, CliError> {
+    s.parse::<Pubkey>()
+        .map_err(|_| CliError::InvalidPubkey(s.to_string()))
+}
+
+fn get_commitment(s: &str) -> CommitmentConfig {
+    match s.to_lowercase().as_str() {
+        "processed" => CommitmentConfig::processed(),
+        "confirmed" => CommitmentConfig::confirmed(),
+        "finalized" => CommitmentConfig::finalized(),
+        _ => CommitmentConfig::confirmed(),
+    }
+}
+
+fn derive_stablecoin_pda(asset_mint: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[STABLECOIN_SEED, asset_mint.to_bytes().as_ref()],
+        program_id,
+    )
+}
+
+fn derive_role_pda(
+    stablecoin: &Pubkey,
+    account: &Pubkey,
+    program_id: &Pubkey,
+) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[ROLE_SEED, stablecoin.to_bytes().as_ref(), account.to_bytes().as_ref()],
+        program_id,
+    )
+}
+
+fn derive_minter_pda(
+    stablecoin: &Pubkey,
+    minter: &Pubkey,
+    program_id: &Pubkey,
+) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[MINTER_SEED, stablecoin.to_bytes().as_ref(), minter.to_bytes().as_ref()],
+        program_id,
+    )
+}
+
+fn derive_blacklist_pda(
+    stablecoin: &Pubkey,
+    account: &Pubkey,
+    program_id: &Pubkey,
+) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[BLACKLIST_SEED, stablecoin.to_bytes().as_ref(), account.to_bytes().as_ref()],
+        program_id,
+    )
+}
+
+fn setup_client(
+    url: &str,
+    keypair_path: &str,
+    commitment: &str,
+) -> Result<(Program<Rc<Keypair>>, Pubkey, Pubkey), CliError> {
+    let expanded_path = expand_tilde(keypair_path);
+    let keypair = read_keypair_file(&expanded_path)
+        .map_err(|e| CliError::KeypairError(format!("Failed to read keypair {}: {}", expanded_path, e)))?;
+    
+    let authority = keypair.pubkey();
+    let commitment_config = get_commitment(commitment);
+    
+    let client = Client::new_with_options(
+        Cluster::Custom(url.to_string(), url.to_string()),
+        Rc::new(keypair),
+        commitment_config,
+    );
+    
+    let program_id = Pubkey::try_from(PROGRAM_ID)
+        .map_err(|e| CliError::InvalidPubkey(e.to_string()))?;
+    
+    let program = client.program(program_id)
+        .map_err(|e| CliError::AnchorError(e))?;
+    
+    Ok((program, program_id, authority))
+}
+
+fn parse_role(role_str: &str) -> Result<commands::Role, CliError> {
+    match role_str.to_lowercase().as_str() {
+        "master" => Ok(commands::Role::Master),
+        "minter" => Ok(commands::Role::Minter),
+        "burner" => Ok(commands::Role::Burner),
+        "blacklister" => Ok(commands::Role::Blacklister),
+        "pauser" => Ok(commands::Role::Pauser),
+        "seizer" => Ok(commands::Role::Seizer),
+        _ => Err(CliError::InvalidArg(format!(
+            "Invalid role '{}'. Valid roles: master, minter, burner, blacklister, pauser, seizer",
+            role_str
+        ))),
+    }
 }
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-
-    let keypair = read_keypair_file(&cli.keypair)?;
-    let client = Client::new_with_options(
-        Cluster::Custom(cli.url.clone(), cli.url.clone()),
-        std::rc::Rc::new(keypair),
-    );
-
-    let program_id = Pubkey::try_from("SSSToken11111111111111111111111111111111111")?;
-    let program = client.program(program_id)?;
-
-    match cli.command {
-        Commands::Init {
-            preset,
-            name,
-            symbol,
-            uri,
-            decimals,
-        } => {
-            println!("Initializing stablecoin: {} ({})", name, symbol);
-            println!("Preset: SSS-{}", preset);
-            println!("Decimals: {}", decimals);
-            Ok(())
+    
+    // Load optional config file
+    let _config = config::load_config(&cli.config).unwrap_or_default();
+    
+    // Setup client
+    let (program, program_id, authority) = match setup_client(&cli.url, &cli.keypair, &cli.commitment) {
+        Ok(result) => result,
+        Err(e) => {
+            eprintln!("❌ Error setting up client: {}", e);
+            std::process::exit(1);
         }
-        Commands::Mint { recipient, amount } => {
-            println!("Minting {} to {}", amount, recipient);
-            Ok(())
+    };
+    
+    let result = match cli.command {
+        Commands::Init { preset, name, symbol, uri, decimals, asset_mint } => {
+            commands::handle_init(&program, &authority, preset, name, symbol, uri, decimals, asset_mint)
         }
-        Commands::Burn { amount } => {
-            println!("Burning {}", amount);
-            Ok(())
+        Commands::Mint { recipient, amount, stablecoin } => {
+            let stablecoin_pubkey = stablecoin
+                .map(|s| parse_pubkey(&s))
+                .transpose()?;
+            commands::handle_mint(&program, &authority, &recipient, amount, stablecoin_pubkey.as_ref())
         }
-        Commands::Freeze { account } => {
-            println!("Freezing account: {}", account);
-            Ok(())
+        Commands::Burn { amount, from, stablecoin } => {
+            let from_pubkey = from
+                .map(|s| parse_pubkey(&s))
+                .transpose()?;
+            let stablecoin_pubkey = stablecoin
+                .map(|s| parse_pubkey(&s))
+                .transpose()?;
+            commands::handle_burn(&program, &authority, amount, from_pubkey.as_ref(), stablecoin_pubkey.as_ref())
         }
-        Commands::Thaw { account } => {
-            println!("Thawing account: {}", account);
-            Ok(())
+        Commands::Freeze { account, stablecoin } => {
+            let stablecoin_pubkey = stablecoin
+                .map(|s| parse_pubkey(&s))
+                .transpose()?;
+            commands::handle_freeze(&program, &authority, &account, stablecoin_pubkey.as_ref())
         }
-        Commands::Pause => {
-            println!("Pausing stablecoin");
-            Ok(())
+        Commands::Thaw { account, stablecoin } => {
+            let stablecoin_pubkey = stablecoin
+                .map(|s| parse_pubkey(&s))
+                .transpose()?;
+            commands::handle_thaw(&program, &authority, &account, stablecoin_pubkey.as_ref())
         }
-        Commands::Unpause => {
-            println!("Unpausing stablecoin");
-            Ok(())
+        Commands::Pause { stablecoin } => {
+            let stablecoin_pubkey = stablecoin
+                .map(|s| parse_pubkey(&s))
+                .transpose()?;
+            commands::handle_pause(&program, &authority, stablecoin_pubkey.as_ref())
+        }
+        Commands::Unpause { stablecoin } => {
+            let stablecoin_pubkey = stablecoin
+                .map(|s| parse_pubkey(&s))
+                .transpose()?;
+            commands::handle_unpause(&program, &authority, stablecoin_pubkey.as_ref())
         }
         Commands::Blacklist { command } => match command {
-            BlacklistCommands::Add { account, reason } => {
-                println!("Adding {} to blacklist: {}", account, reason);
-                Ok(())
+            BlacklistCommands::Add { account, reason, stablecoin } => {
+                let stablecoin_pubkey = stablecoin
+                    .map(|s| parse_pubkey(&s))
+                    .transpose()?;
+                commands::handle_blacklist_add(&program, &authority, &account, &reason, stablecoin_pubkey.as_ref())
             }
-            BlacklistCommands::Remove { account } => {
-                println!("Removing {} from blacklist", account);
-                Ok(())
+            BlacklistCommands::Remove { account, stablecoin } => {
+                let stablecoin_pubkey = stablecoin
+                    .map(|s| parse_pubkey(&s))
+                    .transpose()?;
+                commands::handle_blacklist_remove(&program, &authority, &account, stablecoin_pubkey.as_ref())
             }
-            BlacklistCommands::List => {
-                println!("Listing blacklisted accounts...");
-                Ok(())
+            BlacklistCommands::List { stablecoin } => {
+                let stablecoin_pubkey = stablecoin
+                    .map(|s| parse_pubkey(&s))
+                    .transpose()?;
+                commands::handle_blacklist_list(&program, &authority, stablecoin_pubkey.as_ref())
+            }
+            BlacklistCommands::Check { account, stablecoin } => {
+                let stablecoin_pubkey = stablecoin
+                    .map(|s| parse_pubkey(&s))
+                    .transpose()?;
+                commands::handle_blacklist_check(&program, &authority, &account, stablecoin_pubkey.as_ref())
             }
         },
         Commands::Minters { command } => match command {
-            MinterCommands::Add { account, quota } => {
-                println!("Adding minter {} with quota {}", account, quota);
-                Ok(())
+            MinterCommands::Add { account, quota, stablecoin } => {
+                let stablecoin_pubkey = stablecoin
+                    .map(|s| parse_pubkey(&s))
+                    .transpose()?;
+                commands::handle_minter_add(&program, &authority, &account, quota, stablecoin_pubkey.as_ref())
             }
-            MinterCommands::Remove { account } => {
-                println!("Removing minter {}", account);
-                Ok(())
+            MinterCommands::Remove { account, stablecoin } => {
+                let stablecoin_pubkey = stablecoin
+                    .map(|s| parse_pubkey(&s))
+                    .transpose()?;
+                commands::handle_minter_remove(&program, &authority, &account, stablecoin_pubkey.as_ref())
             }
-            MinterCommands::List => {
-                println!("Listing minters...");
-                Ok(())
+            MinterCommands::List { stablecoin } => {
+                let stablecoin_pubkey = stablecoin
+                    .map(|s| parse_pubkey(&s))
+                    .transpose()?;
+                commands::handle_minter_list(&program, &authority, stablecoin_pubkey.as_ref())
             }
-            MinterCommands::Info { account } => {
-                println!("Getting info for minter {}...", account);
-                Ok(())
+            MinterCommands::Info { account, stablecoin } => {
+                let stablecoin_pubkey = stablecoin
+                    .map(|s| parse_pubkey(&s))
+                    .transpose()?;
+                commands::handle_minter_info(&program, &authority, &account, stablecoin_pubkey.as_ref())
             }
-            MinterCommands::SetQuota { account, quota } => {
-                println!("Setting quota for minter {} to {}", account, quota);
-                Ok(())
+            MinterCommands::SetQuota { account, quota, stablecoin } => {
+                let stablecoin_pubkey = stablecoin
+                    .map(|s| parse_pubkey(&s))
+                    .transpose()?;
+                commands::handle_minter_set_quota(&program, &authority, &account, quota, stablecoin_pubkey.as_ref())
             }
         },
-        Commands::Seize {
-            account,
-            to,
-            amount,
-        } => {
-            println!("Seizing {} from {} to {}", amount, account, to);
-            Ok(())
+        Commands::Seize { account, to, amount, stablecoin } => {
+            let stablecoin_pubkey = stablecoin
+                .map(|s| parse_pubkey(&s))
+                .transpose()?;
+            commands::handle_seize(&program, &authority, &account, &to, amount, stablecoin_pubkey.as_ref())
         }
-        Commands::TransferAuthority { new_authority } => {
-            println!("Transferring authority to {}", new_authority);
-            Ok(())
+        Commands::TransferAuthority { new_authority, stablecoin } => {
+            let stablecoin_pubkey = stablecoin
+                .map(|s| parse_pubkey(&s))
+                .transpose()?;
+            commands::handle_transfer_authority(&program, &authority, &new_authority, stablecoin_pubkey.as_ref())
         }
-        Commands::AssignRole { role, account } => {
-            println!("Assigning role {} to {}", role, account);
-            Ok(())
+        Commands::AssignRole { role, account, stablecoin } => {
+            let role_enum = parse_role(&role)?;
+            let stablecoin_pubkey = stablecoin
+                .map(|s| parse_pubkey(&s))
+                .transpose()?;
+            commands::handle_assign_role(&program, &authority, role_enum, &account, stablecoin_pubkey.as_ref())
         }
-        Commands::Status { export } => {
-            println!("Status: Active");
-            if let Some(path) = export {
-                println!("Exporting state to {}", path);
-            }
-            Ok(())
+        Commands::RevokeRole { account, stablecoin } => {
+            let stablecoin_pubkey = stablecoin
+                .map(|s| parse_pubkey(&s))
+                .transpose()?;
+            commands::handle_revoke_role(&program, &authority, &account, stablecoin_pubkey.as_ref())
         }
-        Commands::Supply => {
-            println!("Total Supply: 0");
-            Ok(())
+        Commands::Status { stablecoin, export } => {
+            let stablecoin_pubkey = stablecoin
+                .map(|s| parse_pubkey(&s))
+                .transpose()?;
+            commands::handle_status(&program, &authority, stablecoin_pubkey.as_ref(), export.as_deref())
         }
-        Commands::Holders { min_balance } => {
-            println!("Listing holders with balance > {}...", min_balance);
-            Ok(())
+        Commands::Supply { stablecoin } => {
+            let stablecoin_pubkey = stablecoin
+                .map(|s| parse_pubkey(&s))
+                .transpose()?;
+            commands::handle_supply(&program, &authority, stablecoin_pubkey.as_ref())
         }
-        Commands::AuditLog {
-            action,
-            from,
-            to,
-            format,
-            output,
-        } => {
-            println!("Viewing audit log (format: {})...", format);
-            if let Some(a) = action {
-                println!("Filter action: {}", a);
-            }
-            if let Some(f) = from {
-                println!("From: {}", f);
-            }
-            if let Some(t) = to {
-                println!("To: {}", t);
-            }
-            if let Some(o) = output {
-                println!("Output to: {}", o);
-            }
-            Ok(())
+        Commands::Holders { min_balance, stablecoin } => {
+            let stablecoin_pubkey = stablecoin
+                .map(|s| parse_pubkey(&s))
+                .transpose()?;
+            commands::handle_holders(&program, &authority, min_balance, stablecoin_pubkey.as_ref())
         }
+        Commands::AuditLog { action, from, to, format, output } => {
+            let from_pubkey = from
+                .map(|s| parse_pubkey(&s))
+                .transpose()?;
+            let to_pubkey = to
+                .map(|s| parse_pubkey(&s))
+                .transpose()?;
+            commands::handle_audit_log(&program, &authority, action.as_deref(), from_pubkey.as_ref(), to_pubkey.as_ref(), &format, output.as_deref())
+        }
+        Commands::Derive { stablecoin } => {
+            let stablecoin_pubkey = stablecoin
+                .map(|s| parse_pubkey(&s))
+                .transpose()?;
+            commands::handle_derive(&program, &authority, stablecoin_pubkey.as_ref())
+        }
+    };
+    
+    if let Err(e) = result {
+        eprintln!("❌ Error: {}", e);
+        std::process::exit(1);
     }
+    
+    Ok(())
 }

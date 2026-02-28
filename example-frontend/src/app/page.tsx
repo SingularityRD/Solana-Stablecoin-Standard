@@ -1,62 +1,43 @@
 'use client';
 
-import { useState } from 'react';
+import { Dashboard } from '../components/Dashboard';
 
 export default function Home() {
-  const [connected, setConnected] = useState(false);
-  const [supply, setSupply] = useState(1000000);
-  const [paused, setPaused] = useState(false);
-
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-900 to-purple-900 text-white p-8">
-      <div className="container mx-auto">
-        <h1 className="text-4xl font-bold text-center mb-8">SSS Token Dashboard</h1>
-        
-        {!connected ? (
-          <button
-            onClick={() => setConnected(true)}
-            className="bg-blue-500 hover:bg-blue-600 px-6 py-3 rounded-lg font-semibold"
-          >
-            Connect Wallet
-          </button>
-        ) : (
-          <div className="space-y-6">
-            <div className="bg-white/10 p-6 rounded-lg">
-              <h2 className="text-2xl font-semibold mb-4">Dashboard</h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-white/5 p-4 rounded">
-                  <p className="text-sm text-gray-400">Total Supply</p>
-                  <p className="text-2xl font-bold">{supply.toLocaleString()}</p>
-                </div>
-                <div className="bg-white/5 p-4 rounded">
-                  <p className="text-sm text-gray-400">Status</p>
-                  <p className="text-2xl font-bold">{paused ? 'Paused' : 'Active'}</p>
-                </div>
-                <div className="bg-white/5 p-4 rounded">
-                  <p className="text-sm text-gray-400">Preset</p>
-                  <p className="text-2xl font-bold">SSS-2</p>
-                </div>
-                <div className="bg-white/5 p-4 rounded">
-                  <p className="text-sm text-gray-400">Blacklist</p>
-                  <p className="text-2xl font-bold">3</p>
-                </div>
-              </div>
-              
-              <div className="mt-6 flex gap-4 flex-wrap">
-                <button className="bg-blue-500 hover:bg-blue-600 px-4 py-2 rounded">Mint</button>
-                <button className="bg-red-500 hover:bg-red-600 px-4 py-2 rounded">Burn</button>
-                <button className="bg-yellow-500 hover:bg-yellow-600 px-4 py-2 rounded">Freeze</button>
-                <button 
-                  onClick={() => setPaused(!paused)}
-                  className="bg-purple-500 hover:bg-purple-600 px-4 py-2 rounded"
-                >
-                  {paused ? 'Unpause' : 'Pause'}
-                </button>
-              </div>
+    <main className="min-h-screen">
+      <div className="container mx-auto px-4 py-8">
+        <header className="text-center mb-12">
+          <div className="inline-flex items-center gap-3 mb-4">
+            <div className="w-12 h-12 bg-gradient-to-br from-solana-purple to-solana-teal rounded-xl flex items-center justify-center">
+              <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
             </div>
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-solana-purple to-solana-teal bg-clip-text text-transparent">
+              SSS Token
+            </h1>
           </div>
-        )}
+          <p className="text-gray-400 max-w-2xl mx-auto">
+            Solana Stablecoin Standard - A compliant, programmable stablecoin framework with 
+            built-in regulatory controls including mint, burn, freeze, seize, and pause capabilities.
+          </p>
+        </header>
+        
+        <Dashboard />
+        
+        <footer className="mt-16 text-center text-gray-500 text-sm">
+          <p>Built on Solana using Anchor Framework</p>
+          <p className="mt-2">
+            <a href="https://github.com/solana-labs" className="text-solana-teal hover:underline">
+              Documentation
+            </a>
+            {' | '}
+            <a href="#" className="text-solana-purple hover:underline">
+              GitHub
+            </a>
+          </p>
+        </footer>
       </div>
-    </div>
+    </main>
   );
 }

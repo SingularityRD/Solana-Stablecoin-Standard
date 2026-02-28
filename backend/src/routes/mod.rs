@@ -1,4 +1,13 @@
 pub mod health;
-pub mod proofs;
+pub mod metrics;
+pub mod auth;
+pub mod stablecoin;
+pub mod operations;
+pub mod admin;
+pub mod roles;
+pub mod minters;
+pub mod audit;
+pub mod users;
 pub mod compliance;
 pub mod webhooks;
+pub mod proofs;

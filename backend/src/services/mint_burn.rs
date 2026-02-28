@@ -1,4 +1,3 @@
-use solana_sdk::pubkey::Pubkey;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -15,11 +14,11 @@ pub struct BurnRequest {
 }
 
 pub struct MintBurnService {
-    pub authority: Pubkey,
+    pub authority: String,
 }
 
 impl MintBurnService {
-    pub fn new(authority: Pubkey) -> Self {
+    pub fn new(authority: String) -> Self {
         Self { authority }
     }
 
@@ -30,8 +29,6 @@ impl MintBurnService {
         // 2. Build the Anchor MintTo instruction
         // 3. Sign with the backend authority keypair
         // 4. Submit to Solana RPC
-        
-        let _recipient_pubkey = req.recipient.parse::<Pubkey>()?;
         
         tracing::info!(
             "Processed mint request for {} amount {}", 

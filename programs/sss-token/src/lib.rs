@@ -3,12 +3,38 @@ use anchor_lang::prelude::*;
 pub mod constants;
 pub mod error;
 pub mod events;
-pub mod instructions;
 pub mod math;
 pub mod state;
 
-use instructions::*;
-use state::Role;
+// Instruction modules - placed at crate root for Anchor compatibility
+pub mod admin;
+pub mod blacklist;
+pub mod burn;
+pub mod freeze;
+pub mod initialize;
+pub mod minter_management;
+pub mod mint;
+pub mod role_management;
+pub mod seize;
+pub mod thaw;
+pub mod transfer_hook;
+
+// Extensions
+pub mod extensions;
+
+// Re-export all instruction structs to crate root for Anchor client code generation
+pub use admin::*;
+pub use blacklist::*;
+pub use burn::*;
+pub use freeze::*;
+pub use initialize::*;
+pub use minter_management::*;
+pub use mint::*;
+pub use role_management::*;
+pub use seize::*;
+pub use thaw::*;
+pub use transfer_hook::*;
+pub use state::Role;
 
 declare_id!("SSSToken11111111111111111111111111111111111");
 
@@ -24,60 +50,73 @@ pub mod sss_token {
         uri: String,
         decimals: u8,
     ) -> Result<()> {
-        instructions::initialize::handler(ctx, preset, name, symbol, uri, decimals)
+        initialize::handler(ctx, preset, name, symbol, uri, decimals)
     }
 
     pub fn mint(ctx: Context<Mint>, amount: u64) -> Result<()> {
-        instructions::mint::handler(ctx, amount)
+        mint::handler(ctx, amount)
     }
 
     pub fn burn(ctx: Context<Burn>, amount: u64) -> Result<()> {
-        instructions::burn::handler(ctx, amount)
+        burn::handler(ctx, amount)
     }
 
     pub fn freeze_account(ctx: Context<FreezeAccount>) -> Result<()> {
-        instructions::freeze::handler(ctx)
+        freeze::handler(ctx)
     }
 
     pub fn thaw_account(ctx: Context<ThawAccount>) -> Result<()> {
-        instructions::thaw::handler(ctx)
+        thaw::handler(ctx)
     }
 
     pub fn pause(ctx: Context<Admin>) -> Result<()> {
-        instructions::admin::pause(ctx)
+        admin::pause(ctx)
     }
 
     pub fn unpause(ctx: Context<Admin>) -> Result<()> {
-        instructions::admin::unpause(ctx)
+        admin::unpause(ctx)
     }
 
     pub fn transfer_authority(ctx: Context<Admin>, new_authority: Pubkey) -> Result<()> {
-        instructions::admin::transfer_authority(ctx, new_authority)
+        admin::transfer_authority(ctx, new_authority)
     }
 
     pub fn add_to_blacklist(ctx: Context<Blacklist>, reason: String) -> Result<()> {
-        instructions::blacklist::add(ctx, reason)
+        blacklist::add(ctx, reason)
     }
 
     pub fn remove_from_blacklist(ctx: Context<Blacklist>) -> Result<()> {
-        instructions::blacklist::remove(ctx)
+        blacklist::remove(ctx)
     }
 
     pub fn seize(ctx: Context<Seize>, amount: u64) -> Result<()> {
-        instructions::seize::handler(ctx, amount)
+        seize::handler(ctx, amount)
     }
 
     pub fn assign_role(ctx: Context<AssignRole>, role: Role) -> Result<()> {
-        instructions::role_management::handler(ctx, role)
+        role_management::handler(ctx, role)
     }
 
-    // Since we are using standard Anchor instruction routing, we can expose
-    // the transfer hook directly as a standard instruction, or use the exact Execute
-    // discriminator. To be perfectly 100% compliant with standard Anchor,
-    // we use a dedicated route for the hook testing.
-    // (Note: Raw SPL integration uses a fallback, but here we just expose the logic
-    // so tests and the SDK can call it directly).
+    pub fn revoke_role(ctx: Context<RevokeRole>) -> Result<()> {
+        role_management::revoke_handler(ctx)
+    }
+
+    pub fn add_minter(ctx: Context<AddMinter>, quota: u64) -> Result<()> {
+        minter_management::add_minter_handler(ctx, quota)
+    }
+
+    pub fn remove_minter(ctx: Context<RemoveMinter>) -> Result<()> {
+        minter_management::remove_minter_handler(ctx)
+    }
+
+    pub fn update_quota(ctx: Context<UpdateQuota>, new_quota: u64) -> Result<()> {
+        minter_management::update_quota_handler(ctx, new_quota)
+    }
+
+    // Transfer hook is called by SPL Token-2022 during transfers.
+    // This is exposed as a standard instruction for testing purposes.
+    // Note: In production, this is invoked via the transfer hook interface.
     pub fn execute_transfer_hook(ctx: Context<TransferHook>, amount: u64) -> Result<()> {
-        instructions::transfer_hook::enforce_transfer(ctx, amount)
+        transfer_hook::enforce_transfer(ctx, amount)
     }
 }

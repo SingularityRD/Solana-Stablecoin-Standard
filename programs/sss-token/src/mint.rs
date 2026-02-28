@@ -1,4 +1,4 @@
-use crate::constants::{ROLE_SEED, VAULT_SEED};
+use crate::constants::{MINTER_SEED, ROLE_SEED, VAULT_SEED};
 use crate::error::StablecoinError;
 use crate::events::*;
 use crate::math::update_supply;
@@ -24,6 +24,14 @@ pub struct Mint<'info> {
     )]
     pub role_assignment: Option<Account<'info, RoleAssignment>>,
 
+    /// Optional: Minter info for quota enforcement
+    #[account(
+        mut,
+        seeds = [MINTER_SEED, state.key().as_ref(), authority.key().as_ref()],
+        bump,
+    )]
+    pub minter_info: Option<Account<'info, MinterInfo>>,
+
     #[account(mut)]
     pub asset_mint: InterfaceAccount<'info, TokenMint>,
 
@@ -47,6 +55,23 @@ pub fn handler(ctx: Context<Mint>, amount: u64) -> Result<()> {
     require!(is_master || is_minter, StablecoinError::Unauthorized);
     require!(amount > 0, StablecoinError::ZeroAmount);
     require!(!state.paused, StablecoinError::VaultPaused);
+
+    // Quota enforcement for non-master minters
+    if let Some(minter_info) = &mut ctx.accounts.minter_info {
+        // Check if minter has exceeded their quota
+        let new_minted_amount = minter_info
+            .minted_amount
+            .checked_add(amount)
+            .ok_or(StablecoinError::MathOverflow)?;
+        
+        require!(
+            new_minted_amount <= minter_info.quota,
+            StablecoinError::QuotaExceeded
+        );
+        
+        // Update minted amount
+        minter_info.minted_amount = new_minted_amount;
+    }
 
     state.total_supply = update_supply(state.total_supply, amount, true)?;
 

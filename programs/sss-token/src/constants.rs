@@ -1,6 +1,7 @@
 pub const VAULT_SEED: &[u8] = b"stablecoin";
 pub const ROLE_SEED: &[u8] = b"role";
 pub const BLACKLIST_SEED: &[u8] = b"blacklist";
+pub const MINTER_SEED: &[u8] = b"minter";
 
 pub const PRESET_SSS_1: u8 = 1;
 pub const PRESET_SSS_2: u8 = 2;

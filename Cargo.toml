@@ -30,6 +30,9 @@ solana-sdk = "2.0"
 solana-client = "2.0"
 solana-program = "2.0"
 
+# OpenSSL (vendored for cross-platform builds)
+openssl = { version = "0.10", features = ["vendored"] }
+
 # Backend
 axum = "0.7"
 tokio = { version = "1.0", features = ["full"] }
