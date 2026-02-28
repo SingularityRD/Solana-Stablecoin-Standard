@@ -6,12 +6,18 @@ use axum::{
 };
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tower::ServiceBuilder;
 use tower_http::{
-    cors::{Any, CorsLayer},
+    cors::{Any, CorsLayer, AllowOrigin},
     limit::RequestBodyLimitLayer,
     trace::TraceLayer,
+    set_header::SetResponseHeaderLayer,
+    util::option_layer,
 };
+use http::{header, HeaderValue, Method};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tokio::signal;
 
 mod config;
 mod db;
@@ -30,6 +36,12 @@ mod tests;
 use config::AppConfig;
 use db::Database;
 use services::{SolanaService, MintBurnService, ComplianceService};
+
+/// Application version - set at compile time
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Application start time for uptime calculation
+pub static START_TIME: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
 
 #[derive(Clone)]
 pub struct AppState {
@@ -117,8 +129,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Build router with middleware
     let app = Router::new()
-        // Health check (no auth required)
+        // Health checks (no auth required)
         .route("/health", get(routes::health::handler))
+        .route("/health/detail", get(routes::health::detailed_handler))
+        .route("/health/ready", get(routes::health::readiness_handler))
+        .route("/health/live", get(routes::health::liveness_handler))
         .route("/metrics", get(routes::metrics::handler))
         
         // Public routes
@@ -188,13 +203,85 @@ async fn main() -> anyhow::Result<()> {
         .layer(middleware::from_fn(app_middleware::rate_limit::rate_limit_middleware))
         .layer(middleware::from_fn(app_middleware::request_id::request_id_middleware))
         
-        // CORS
-        .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any)
-        )
+        // CSRF protection - enabled in staging/production
+        .layer(option_layer((!config.environment.is_development()).then(|| {
+            middleware::from_fn_with_state(state.clone(), app_middleware::csrf::csrf_middleware)
+        })))
+        
+        // HTTPS enforcement - only in production (must be after other middleware)
+        .layer(option_layer(config.enforce_https.then(|| {
+            middleware::from_fn(app_middleware::https::https_enforcement_middleware)
+        })))
+        
+        // Security headers (applied in reverse order)
+        // X-Content-Type-Options: nosniff
+        .layer(SetResponseHeaderLayer::overriding(
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        
+        // X-Frame-Options: DENY
+        .layer(SetResponseHeaderLayer::overriding(
+            header::X_FRAME_OPTIONS,
+            HeaderValue::from_static("DENY"),
+        ))
+        
+        // X-XSS-Protection: 1; mode=block (legacy but still useful)
+        .layer(SetResponseHeaderLayer::overriding(
+            HeaderValue::from_static("x-xss-protection"),
+            HeaderValue::from_static("1; mode=block"),
+        ))
+        
+        // Referrer-Policy: strict-origin-when-cross-origin
+        .layer(SetResponseHeaderLayer::overriding(
+            header::REFERRER_POLICY,
+            HeaderValue::from_static("strict-origin-when-cross-origin"),
+        ))
+        
+        // Permissions-Policy (formerly Feature-Policy)
+        .layer(SetResponseHeaderLayer::overriding(
+            HeaderValue::from_static("permissions-policy"),
+            HeaderValue::from_static("geolocation=(), microphone=(), camera=(), payment=()"),
+        ))
+        
+        // HSTS (HTTP Strict Transport Security) - only in production with HTTPS
+        .layer(SetResponseHeaderLayer::overriding_if(
+            config.environment.is_production(),
+            header::STRICT_TRANSPORT_SECURITY,
+            HeaderValue::from_static("max-age=31536000; includeSubDomains; preload"),
+        ))
+        
+        // Content-Security-Policy
+        .layer(SetResponseHeaderLayer::overriding(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("default-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"),
+        ))
+        
+        // CORS - configured based on environment
+        .layer({
+            let cors = if config.environment.is_development() {
+                // Development: Allow all origins
+                CorsLayer::new()
+                    .allow_origin(Any)
+                    .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::PATCH, Method::OPTIONS])
+                    .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT, header::X_REQUESTED_WITH])
+                    .allow_credentials(true)
+            } else {
+                // Production/Staging: Restrict to configured origins
+                let origins: Vec<HeaderValue> = config.cors_origins
+                    .iter()
+                    .filter_map(|origin| origin.parse().ok())
+                    .collect();
+                
+                CorsLayer::new()
+                    .allow_origin(AllowOrigin::list(origins))
+                    .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::PATCH, Method::OPTIONS])
+                    .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT, header::X_REQUESTED_WITH])
+                    .allow_credentials(true)
+                    .max_age(std::time::Duration::from_secs(3600))
+            };
+            cors
+        })
         
         // Request body limit (1MB)
         .layer(RequestBodyLimitLayer::new(1024 * 1024))
@@ -204,13 +291,90 @@ async fn main() -> anyhow::Result<()> {
         
         .with_state(state);
 
+    // Record start time for uptime calculation
+    START_TIME.set(Instant::now()).expect("START_TIME already set");
+
     let addr: SocketAddr = config.server_addr.parse()
         .unwrap_or_else(|_| SocketAddr::from(([0,0,0,0], 3001)));
     
     tracing::info!("Server listening on {}", addr);
+    
+    // HTTPS enforcement warning
+    if config.enforce_https && config.environment.is_production() {
+        tracing::info!("HTTPS enforcement is enabled - ensure TLS termination is configured");
+    }
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    
+    // Clone state for graceful shutdown
+    let shutdown_state = state.clone();
+    
+    // Run server with graceful shutdown
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal(shutdown_state))
+        .await?;
 
+    tracing::info!("Server shutdown complete");
     Ok(())
+}
+
+/// Handles graceful shutdown signals (SIGTERM, SIGINT, Ctrl+C)
+async fn shutdown_signal(state: AppState) {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("Failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("Failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    #[cfg(unix)]
+    let interrupt = async {
+        signal::unix::signal(signal::unix::SignalKind::interrupt())
+            .expect("Failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let interrupt = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {
+            tracing::info!("Received Ctrl+C signal, starting graceful shutdown...");
+        },
+        _ = terminate => {
+            tracing::info!("Received SIGTERM signal, starting graceful shutdown...");
+        },
+        _ = interrupt => {
+            tracing::info!("Received SIGINT signal, starting graceful shutdown...");
+        },
+    }
+
+    // Perform cleanup with timeout
+    let shutdown_timeout = Duration::from_secs(30);
+    tracing::info!("Initiating graceful shutdown with {:?} timeout...", shutdown_timeout);
+
+    let cleanup_result = tokio::time::timeout(shutdown_timeout, async {
+        // Close database connections
+        tracing::info!("Closing database connections...");
+        state.db.close().await;
+        
+        // Any other cleanup can go here
+        
+        tracing::info!("Cleanup completed successfully");
+    }).await;
+
+    if cleanup_result.is_err() {
+        tracing::warn!("Shutdown timeout reached, forcing exit");
+    }
 }

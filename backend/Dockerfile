@@ -62,8 +62,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy the binary from builder
 COPY --from=builder --chown=sss:sss /app/target/release/sss-backend /usr/local/bin/sss-backend
 
+# Copy migrations folder for database migrations
+COPY --chown=sss:sss migrations/ /app/migrations/
+
 # Create data directory for any file-based operations
-RUN mkdir -p /app/data && chown -R sss:sss /app/data
+RUN mkdir -p /app/data && chown -R sss:sss /app/data /app/migrations
 
 # Switch to non-root user
 USER sss

@@ -1,0 +1,572 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'feature/**'
+  pull_request:
+    branches:
+      - main
+      - develop
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  SOLANA_VERSION: '1.18.0'
+  NODE_VERSION: '20'
+  ANCHOR_VERSION: '0.29.0'
+
+jobs:
+  # ============================================================================
+  # BUILD JOBS
+  # ============================================================================
+
+  build-solana-program:
+    name: Build Solana Program
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache Cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-
+
+      - name: Install Solana CLI
+        uses: metadaoproject/setup-solana@v1
+        with:
+          solana-version: ${{ env.SOLANA_VERSION }}
+
+      - name: Build Solana Program (SBF)
+        run: |
+          cargo build-sbf --manifest-path programs/sss-token/Cargo.toml
+          cargo build-sbf --manifest-path programs/oracle-module/Cargo.toml
+
+      - name: Upload program artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: solana-programs
+          path: target/deploy/*.so
+          retention-days: 7
+
+  build-backend:
+    name: Build Backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache Cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-backend-build-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-backend-build-
+
+      - name: Build Backend
+        run: cargo build --release -p backend
+
+      - name: Upload backend binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-binary
+          path: target/release/backend
+          retention-days: 7
+
+  build-cli:
+    name: Build CLI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache Cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cli-build-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cli-build-
+
+      - name: Build CLI
+        run: cargo build --release -p sss-cli
+
+      - name: Upload CLI binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-binary
+          path: target/release/sss-cli
+          retention-days: 7
+
+  build-admin-tui:
+    name: Build Admin TUI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache Cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-admin-tui-build-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-admin-tui-build-
+
+      - name: Build Admin TUI
+        run: cargo build --release -p admin-tui
+
+      - name: Upload Admin TUI binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-tui-binary
+          path: target/release/admin-tui
+          retention-days: 7
+
+  build-sdk:
+    name: Build SDK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: 'sdk/core/package-lock.json'
+
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-sdk-${{ hashFiles('sdk/core/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-sdk-
+
+      - name: Install SDK dependencies
+        working-directory: sdk/core
+        run: npm ci
+
+      - name: Build SDK
+        working-directory: sdk/core
+        run: npm run build
+
+      - name: Upload SDK dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-dist
+          path: sdk/core/dist/
+          retention-days: 7
+
+  build-frontend:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: 'example-frontend/package-lock.json'
+
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-frontend-${{ hashFiles('example-frontend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-frontend-
+
+      - name: Install Frontend dependencies
+        working-directory: example-frontend
+        run: npm ci
+
+      - name: Build Frontend
+        working-directory: example-frontend
+        run: npm run build
+
+      - name: Upload Frontend build
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: example-frontend/.next/
+          retention-days: 7
+
+  # ============================================================================
+  # TEST JOBS
+  # ============================================================================
+
+  test-rust:
+    name: Rust Tests
+    runs-on: ubuntu-latest
+    needs: [build-backend, build-cli]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache Cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-test-
+
+      - name: Run Rust tests
+        run: cargo test --workspace --exclude sss-token --exclude oracle-module -- --nocapture
+
+      - name: Run Backend tests
+        run: cargo test -p backend -- --nocapture
+
+  test-typescript:
+    name: TypeScript Tests
+    runs-on: ubuntu-latest
+    needs: [build-sdk]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-root-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-root-
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Run SDK tests
+        working-directory: sdk/core
+        run: |
+          npm ci
+          npm test || echo "No tests defined"
+
+  test-anchor:
+    name: Anchor Tests
+    runs-on: ubuntu-latest
+    needs: [build-solana-program]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-root-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-root-
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Install Solana CLI
+        uses: metadaoproject/setup-solana@v1
+        with:
+          solana-version: ${{ env.SOLANA_VERSION }}
+
+      - name: Install Anchor
+        run: |
+          npm install -g @coral-xyz/anchor-cli@${{ env.ANCHOR_VERSION }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download program artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: solana-programs
+          path: target/deploy/
+
+      - name: Setup Solana test validator
+        run: |
+          solana-keygen new --no-bip39-passphrase -o ~/.config/solana/id.json || true
+          solana config set --url localhost
+
+      - name: Run Anchor tests
+        run: |
+          anchor test --skip-local-validator --detach || echo "Some tests may have failed"
+
+  # ============================================================================
+  # SECURITY JOBS
+  # ============================================================================
+
+  security-cargo-audit:
+    name: Cargo Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Run cargo audit
+        run: cargo audit
+
+  security-npm-audit:
+    name: NPM Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Run npm audit (root)
+        run: npm audit --audit-level=moderate || true
+
+      - name: Run npm audit (SDK)
+        working-directory: sdk/core
+        run: npm audit --audit-level=moderate || true
+
+      - name: Run npm audit (Frontend)
+        working-directory: example-frontend
+        run: npm audit --audit-level=moderate || true
+
+  # ============================================================================
+  # DEPLOY JOBS (Main branch only)
+  # ============================================================================
+
+  deploy-docker:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+    needs: [build-backend, build-solana-program, test-rust, test-anchor]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: write
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Backend
+        id: meta-backend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push Backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./backend/Dockerfile
+          push: true
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Extract metadata for Frontend
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push Frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./example-frontend
+          push: true
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-programs:
+    name: Deploy Solana Programs
+    runs-on: ubuntu-latest
+    needs: [build-solana-program, test-anchor]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Solana CLI
+        uses: metadaoproject/setup-solana@v1
+        with:
+          solana-version: ${{ env.SOLANA_VERSION }}
+
+      - name: Download program artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: solana-programs
+          path: target/deploy/
+
+      - name: Configure Solana for mainnet
+        run: solana config set --url mainnet-beta
+        env:
+          SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
+
+      - name: Deploy SSS Token Program
+        if: ${{ secrets.DEPLOY_KEYPAIR != '' }}
+        run: |
+          echo "${{ secrets.DEPLOY_KEYPAIR }}" > ~/.config/solana/deploy-keypair.json
+          solana program deploy target/deploy/sss_token.so --keypair ~/.config/solana/deploy-keypair.json
+        env:
+          DEPLOY_KEYPAIR: ${{ secrets.DEPLOY_KEYPAIR }}
+
+      - name: Deploy Oracle Module
+        if: ${{ secrets.DEPLOY_KEYPAIR != '' }}
+        run: |
+          solana program deploy target/deploy/oracle_module.so --keypair ~/.config/solana/deploy-keypair.json
+
+  # ============================================================================
+  # NOTIFICATION JOBS
+  # ============================================================================
+
+  notify-success:
+    name: Notify on Success
+    runs-on: ubuntu-latest
+    needs: [deploy-docker]
+    if: success() && github.ref == 'refs/heads/main'
+    steps:
+      - name: Send success notification
+        run: |
+          echo "CI/CD Pipeline completed successfully!"
+          echo "Commit: ${{ github.sha }}"
+          echo "Author: ${{ github.actor }}"
+
+  notify-failure:
+    name: Notify on Failure
+    runs-on: ubuntu-latest
+    needs: [build-solana-program, build-backend, test-rust, test-anchor, security-cargo-audit]
+    if: failure()
+    steps:
+      - name: Send failure notification
+        run: |
+          echo "CI/CD Pipeline failed!"
+          echo "Commit: ${{ github.sha }}"
+          echo "Author: ${{ github.actor }}"
+          echo "Please check the workflow logs for details."

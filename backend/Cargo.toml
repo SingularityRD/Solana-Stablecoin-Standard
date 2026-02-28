@@ -16,14 +16,14 @@ tokio = { workspace = true, features = ["full", "macros", "rt-multi-thread"] }
 # Web framework
 axum = { workspace = true, features = ["macros"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "limit", "trace", "request-id"] }
+tower-http = { version = "0.6", features = ["cors", "limit", "trace", "request-id", "set-header", "compression-gzip"] }
 
 # Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
 
 # Database
-sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono", "json"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono", "json", "migrate"] }
 
 # Solana (required for SSS)
 anchor-client = { workspace = true }
@@ -37,6 +37,9 @@ openssl = { version = "0.10", features = ["vendored"] }
 
 # Encoding
 bs58 = "0.5"
+base64 = "0.22"
+hex = "0.4"
+sha2 = "0.10"
 
 # Authentication
 jsonwebtoken = "9"
@@ -50,8 +53,6 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 rand = "0.8"
-base64 = "0.22"
-hex = "0.4"
 
 # Configuration
 dotenvy = "0.15"
