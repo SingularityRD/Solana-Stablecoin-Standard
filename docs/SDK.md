@@ -463,6 +463,155 @@ A: Implement appeal process (see COMPLIANCE.md).
 - External audit
 - Long-term support
 
+---
+
+## API Reference
+
+### SolanaStablecoin Class
+
+#### Constructor
+
+```typescript
+constructor(
+  connection: Connection,
+  program: Program,
+  provider: AnchorProvider,
+  stablecoinPda: PublicKey,
+  assetMint: PublicKey,
+  config: StablecoinConfig
+)
+```
+
+#### Static Methods
+
+| Method | Description |
+|--------|-------------|
+| `create(connection, config, program)` | Create and initialize a new stablecoin |
+
+#### Instance Methods
+
+| Method | Parameters | Returns | Description |
+|--------|------------|---------|-------------|
+| `mint` | `authority, recipient, amount, roleAssignment?` | `Promise<string>` | Mint tokens to recipient |
+| `burn` | `authority, from, amount` | `Promise<string>` | Burn tokens from account |
+| `freeze` | `authority, account, roleAssignment?` | `Promise<string>` | Freeze a token account |
+| `thaw` | `authority, account` | `Promise<string>` | Unfreeze a token account |
+| `seize` | `authority, from, to, amount, roleAssignment?` | `Promise<string>` | Seize tokens (SSS-2) |
+| `pause` | `authority` | `Promise<string>` | Pause all operations |
+| `unpause` | `authority` | `Promise<string>` | Resume operations |
+| `transferAuthority` | `authority, newAuthority` | `Promise<string>` | Transfer master authority |
+| `assignRole` | `authority, targetAccount, role` | `Promise<string>` | Assign role to account |
+| `revokeRole` | `authority, targetAccount` | `Promise<string>` | Revoke role from account |
+| `addMinter` | `authority, minter, quota` | `Promise<string>` | Add minter with quota |
+| `removeMinter` | `authority, minter` | `Promise<string>` | Remove minter |
+| `setQuota` | `authority, minter, newQuota` | `Promise<string>` | Update minter quota |
+| `getMinterInfo` | `minter` | `Promise<MinterInfoAccount \| null>` | Get minter details |
+| `getAllMinters` | - | `Promise<{publicKey, account}[]>` | List all minters |
+| `getTotalSupply` | - | `Promise<number>` | Get total supply |
+| `getStatus` | - | `Promise<{paused, preset, complianceEnabled}>` | Get stablecoin status |
+| `getState` | - | `Promise<StablecoinAccount>` | Get full on-chain state |
+
+#### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `connection` | `Connection` | Solana RPC connection |
+| `program` | `Program` | Anchor program instance |
+| `provider` | `AnchorProvider` | Anchor provider |
+| `stablecoinPda` | `PublicKey` | Stablecoin state PDA |
+| `assetMint` | `PublicKey` | Token mint address |
+| `config` | `StablecoinConfig` | Configuration |
+| `compliance` | `ComplianceModule` | Compliance operations |
+
+### ComplianceModule Class
+
+Accessed via `stablecoin.compliance`.
+
+| Method | Parameters | Returns | Description |
+|--------|------------|---------|-------------|
+| `blacklistAdd` | `authority, account, reason` | `Promise<string>` | Add to blacklist |
+| `blacklistRemove` | `authority, account` | `Promise<string>` | Remove from blacklist |
+
+### Types
+
+```typescript
+enum Presets {
+  SSS_1 = 1,
+  SSS_2 = 2,
+}
+
+enum Role {
+  Master = 'Master',
+  Minter = 'Minter',
+  Burner = 'Burner',
+  Blacklister = 'Blacklister',
+  Pauser = 'Pauser',
+  Seizer = 'Seizer',
+}
+
+interface StablecoinConfig {
+  name: string;
+  symbol: string;
+  uri: string;
+  decimals: number;
+  preset?: Presets;
+}
+
+interface StablecoinAccount {
+  authority: PublicKey;
+  assetMint: PublicKey;
+  totalSupply: BN;
+  paused: boolean;
+  preset: number;
+  complianceEnabled: boolean;
+  bump: number;
+}
+
+interface MinterInfoAccount {
+  minter: PublicKey;
+  quota: BN;
+  mintedAmount: BN;
+  bump: number;
+}
+
+interface BlacklistEntryAccount {
+  account: PublicKey;
+  reason: string;
+  blacklistedBy: PublicKey;
+  blacklistedAt: BN;
+  bump: number;
+}
+```
+
+---
+
+## PDA Derivation Utilities
+
+The SDK provides helper functions for deriving Program Derived Addresses:
+
+```typescript
+import { 
+  findStablecoinPda, 
+  findMinterPda, 
+  findRolePda, 
+  findBlacklistPda 
+} from '@stbr/sss-token';
+
+// Derive stablecoin state PDA
+const [stablecoinPda, bump] = findStablecoinPda(assetMint);
+
+// Derive minter info PDA
+const [minterPda, bump] = findMinterPda(stablecoinPda, minterPubkey);
+
+// Derive role assignment PDA
+const [rolePda, bump] = findRolePda(stablecoinPda, accountPubkey);
+
+// Derive blacklist entry PDA
+const [blacklistPda, bump] = findBlacklistPda(stablecoinPda, accountPubkey);
+```
+
+---
+
 ## Support
 
 For support:

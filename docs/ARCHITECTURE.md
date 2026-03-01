@@ -198,3 +198,214 @@ Solana's execution model is governed by Compute Units (CUs). To ensure that SSS 
 1. **Interface Accounts**: By using `InterfaceAccount` instead of raw `AccountInfo` for token interactions, we leverage Anchor's built-in validation while maintaining compatibility with both Token and Token-2022 programs.
 2. **Minimal State Bloat**: State structures are carefully packed to minimize rent costs. The use of `_reserved` fields is a balanced trade-off between current cost and future upgradeability.
 3. **Optimized CPIs**: Instruction handlers are designed to perform all state validations *before* making external CPI calls, ensuring that failed transactions exit as early as possible and consume the minimum amount of CUs.
+
+---
+
+## Backend Infrastructure
+
+### Middleware Stack
+
+The backend service implements a comprehensive middleware pipeline for security, observability, and reliability:
+
+```
+Request → Request ID → Rate Limit → Auth → CSRF → HTTPS → Handler → Response
+                         ↓                    ↓      ↓
+                    429 Response        401   403   Security Headers
+```
+
+#### Request ID Middleware
+- Generates unique identifier for each request
+- Enables distributed tracing across services
+- Header: `X-Request-Id`
+
+#### Rate Limiting Middleware
+- Prevents abuse and DoS attacks
+- Configurable limits per environment
+- Default: 100 requests per 60 seconds (production)
+- Returns `429 Too Many Requests` when exceeded
+
+#### Authentication Middleware
+- JWT token validation
+- Role-based access control
+- User context injection into handlers
+
+#### CSRF Protection Middleware
+- Enabled in staging/production environments
+- Validates CSRF tokens for state-changing operations
+- Disabled in development for easier testing
+
+#### HTTPS Enforcement Middleware
+- Redirects HTTP to HTTPS in production
+- Configurable via `ENFORCE_HTTPS` environment variable
+- Must be placed after other middleware
+
+### Security Headers
+
+All responses include the following security headers:
+
+| Header | Value | Purpose |
+|--------|-------|---------|
+| `X-Content-Type-Options` | `nosniff` | Prevents MIME type sniffing |
+| `X-Frame-Options` | `DENY` | Prevents clickjacking |
+| `X-XSS-Protection` | `1; mode=block` | XSS protection (legacy browsers) |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | Controls referrer information |
+| `Content-Security-Policy` | `default-src 'self'` | Prevents XSS and injection |
+| `Permissions-Policy` | `geolocation=(), ...` | Disables unnecessary browser features |
+| `Strict-Transport-Security` | `max-age=31536000` | HTTPS only (production) |
+
+### CORS Configuration
+
+Cross-Origin Resource Sharing is configured per environment:
+
+**Development:**
+- All origins allowed (`*`)
+- All standard methods allowed
+- Credentials enabled
+
+**Production:**
+- Restricted to configured origins
+- Explicit method whitelist
+- Max age: 1 hour (preflight caching)
+
+---
+
+## Docker Deployment
+
+### Container Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                      Nginx (80/443)                      │
+│                   Reverse Proxy + SSL                    │
+└─────────────────────────┬───────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────┐
+│                   Backend API (3001)                     │
+│                    Rust/Axum Service                     │
+└──────────┬──────────────────────────────────┬───────────┘
+           │                                  │
+           ▼                                  ▼
+┌──────────────────────┐          ┌──────────────────────┐
+│   PostgreSQL (5432)  │          │     Redis (6379)     │
+│    Primary Storage   │          │  Cache + Rate Limit  │
+└──────────────────────┘          └──────────────────────┘
+```
+
+### Docker Compose Services
+
+| Service | Image | Purpose |
+|---------|-------|---------|
+| `postgres` | `postgres:16-alpine` | Primary database |
+| `redis` | `redis:7-alpine` | Caching and rate limiting |
+| `backend` | Custom build | API service |
+| `nginx` | `nginx:alpine` | Reverse proxy (production) |
+
+### Development Deployment
+
+```bash
+# Start all services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f backend
+
+# Stop services
+docker-compose down
+```
+
+### Production Deployment
+
+```bash
+# Production with nginx and SSL
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+### Environment Variables
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `DATABASE_URL` | PostgreSQL connection string | Yes |
+| `REDIS_URL` | Redis connection string | Recommended |
+| `SOLANA_RPC_URL` | Solana RPC endpoint | Yes |
+| `PROGRAM_ID` | SSS Token program ID | Yes |
+| `JWT_SECRET` | JWT signing secret | Yes |
+| `AUTHORITY_KEYPAIR` | Base58 authority keypair | For transactions |
+| `CORS_ORIGINS` | Allowed CORS origins (comma-separated) | Production |
+
+### Resource Limits
+
+Default resource constraints in production:
+
+| Service | CPU Limit | Memory Limit |
+|---------|-----------|--------------|
+| `postgres` | 4 cores | 4 GB |
+| `redis` | 2 cores | 1 GB |
+| `backend` | 4 cores | 2 GB |
+| `nginx` | 2 cores | 512 MB |
+
+### Health Checks
+
+Each service includes health checks for orchestration:
+
+```yaml
+# Backend health check
+healthcheck:
+  test: ["CMD-SHELL", "curl -sf http://localhost:3001/health"]
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 60s
+```
+
+---
+
+## Observability
+
+### Logging
+
+Structured JSON logging for all services:
+
+```json
+{
+  "timestamp": "2024-02-21T12:00:00Z",
+  "level": "INFO",
+  "target": "sss_backend",
+  "message": "Request processed",
+  "request_id": "req_abc123",
+  "duration_ms": 45
+}
+```
+
+### Metrics
+
+Prometheus metrics exposed at `/metrics`:
+
+- HTTP request counts and latencies
+- Database connection pool stats
+- Redis cache hit/miss ratios
+- Custom business metrics
+
+### Tracing
+
+Request tracing via `X-Request-Id` header:
+
+1. Gateway generates unique ID
+2. Passed to all downstream services
+3. Included in all log entries
+4. Returned in response headers
+
+---
+
+## Graceful Shutdown
+
+The backend implements graceful shutdown for zero-downtime deployments:
+
+1. Receive `SIGTERM` or `SIGINT`
+2. Stop accepting new connections
+3. Wait for in-flight requests (30s timeout)
+4. Close database connections
+5. Close Redis connections
+6. Exit cleanly
+
+This ensures no requests are dropped during rolling updates.

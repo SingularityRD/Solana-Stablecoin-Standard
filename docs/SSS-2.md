@@ -212,3 +212,148 @@ The combination of the `Permanent Delegate` extension and the `seize` instructio
 
 #### 4. Tiered Compliance Access
 By using the `RoleManagement` module, an institution can separate the duties of "Blacklisters" (compliance analysts) and "Seizers" (legal department heads). This prevents any single employee from having the power to confiscated assets, aligning the protocol with standard internal control requirements (e.g., SOC2).
+
+---
+
+## CLI Reference
+
+The `sss-token` CLI provides all SSS-2 specific operations:
+
+### Blacklist Management
+
+```bash
+# Add to blacklist
+sss-token blacklist add <account> --reason "OFAC sanctions match" --stablecoin <pda>
+
+# Remove from blacklist
+sss-token blacklist remove <account> --stablecoin <pda>
+
+# List blacklisted accounts
+sss-token blacklist list --stablecoin <pda>
+
+# Check if account is blacklisted
+sss-token blacklist check <account> --stablecoin <pda>
+```
+
+### Seizure Operations
+
+```bash
+# Seize tokens from blacklisted account
+sss-token seize <account> --to <treasury> <amount> --stablecoin <pda>
+```
+
+### All SSS-1 Commands
+
+SSS-2 inherits all SSS-1 commands (mint, burn, freeze, thaw, pause, unpause, role management, minter management). See SSS-1.md for the complete CLI reference.
+
+---
+
+## API Endpoints
+
+SSS-2 specific REST API endpoints:
+
+### Compliance Operations
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/stablecoin/:id/blacklist` | GET | List blacklisted accounts |
+| `/api/v1/stablecoin/:id/blacklist` | POST | Add to blacklist |
+| `/api/v1/stablecoin/:id/blacklist/:account` | DELETE | Remove from blacklist |
+| `/api/v1/stablecoin/:id/screen/:address` | GET | Screen address for risk |
+
+### Seizure
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/stablecoin/:id/seize` | POST | Seize tokens from blacklisted account |
+
+### Example API Usage
+
+#### Add to Blacklist
+
+```bash
+curl -X POST https://api.sss-token.io/v1/stablecoin/uuid/blacklist \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "account": "5y...def",
+    "reason": "OFAC SDN List Match"
+  }'
+```
+
+#### Screen Address
+
+```bash
+curl https://api.sss-token.io/v1/stablecoin/uuid/screen/5y...def \
+  -H "Authorization: Bearer <token>"
+```
+
+Response:
+```json
+{
+  "address": "5y...def",
+  "risk_score": 100,
+  "is_sanctioned": false,
+  "is_blacklisted": true,
+  "recommendation": "block"
+}
+```
+
+#### Seize Tokens
+
+```bash
+curl -X POST https://api.sss-token.io/v1/stablecoin/uuid/seize \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "from_account": "5y...def",
+    "to_account": "7z...ghi",
+    "amount": 1000000
+  }'
+```
+
+---
+
+## SDK Usage
+
+TypeScript SDK for SSS-2 compliance operations:
+
+```typescript
+import { SolanaStablecoin, Presets } from '@stbr/sss-token';
+
+// Create SSS-2 stablecoin
+const stable = await SolanaStablecoin.create(connection, {
+  preset: Presets.SSS_2,
+  name: "Compliant USD",
+  symbol: "CUSD",
+  uri: "https://example.com/metadata.json",
+  decimals: 6,
+  authority,
+  assetMint,
+}, program);
+
+// Access compliance module
+const compliance = stable.compliance;
+
+// Add to blacklist
+await compliance.blacklistAdd(
+  authority,
+  badActorAccount,
+  "OFAC sanctions match"
+);
+
+// Remove from blacklist
+await compliance.blacklistRemove(authority, account);
+
+// Seize tokens
+await stable.seize(
+  authority,
+  blacklistedAccount,
+  treasuryAccount,
+  1000000
+);
+
+// Check compliance status
+const status = await stable.getStatus();
+console.log(status.complianceEnabled); // true for SSS-2
+```

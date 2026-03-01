@@ -526,3 +526,112 @@ class MultiProviderCompliance implements ComplianceProvider {
   "txSignature": "4x...abc"
 }
 ```
+
+---
+
+## API Endpoints
+
+The compliance features are accessible via REST API endpoints:
+
+### Blacklist Management
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/stablecoin/:id/blacklist` | GET | List all blacklisted accounts |
+| `/api/v1/stablecoin/:id/blacklist` | POST | Add account to blacklist |
+| `/api/v1/stablecoin/:id/blacklist/:account` | DELETE | Remove from blacklist |
+
+### Screening
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/stablecoin/:id/screen/:address` | GET | Screen address for compliance risk |
+
+### Example API Usage
+
+#### Add to Blacklist
+
+```bash
+curl -X POST https://api.sss-token.io/v1/stablecoin/uuid/blacklist \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "account": "5y...def",
+    "reason": "OFAC SDN List Match"
+  }'
+```
+
+#### Screen an Address
+
+```bash
+curl https://api.sss-token.io/v1/stablecoin/uuid/screen/5y...def \
+  -H "Authorization: Bearer <token>"
+```
+
+Response:
+```json
+{
+  "address": "5y...def",
+  "risk_score": 100,
+  "is_sanctioned": false,
+  "is_blacklisted": true,
+  "recommendation": "block"
+}
+```
+
+#### List Blacklisted Accounts
+
+```bash
+curl https://api.sss-token.io/v1/stablecoin/uuid/blacklist \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+## CLI Commands
+
+Compliance operations via the CLI:
+
+```bash
+# Add to blacklist
+sss-token blacklist add <account> --reason "OFAC sanctions match" --stablecoin <pda>
+
+# Remove from blacklist
+sss-token blacklist remove <account> --stablecoin <pda>
+
+# List blacklisted accounts
+sss-token blacklist list --stablecoin <pda>
+
+# Check if account is blacklisted
+sss-token blacklist check <account> --stablecoin <pda>
+```
+
+---
+
+## SDK Usage
+
+TypeScript SDK compliance module:
+
+```typescript
+// Access compliance module
+const compliance = stablecoin.compliance;
+
+// Add to blacklist
+await compliance.blacklistAdd(
+  authority,
+  badActorAccount,
+  "OFAC sanctions match"
+);
+
+// Remove from blacklist
+await compliance.blacklistRemove(authority, account);
+
+// Seize tokens from blacklisted account (SSS-2 only)
+await stablecoin.seize(
+  authority,
+  blacklistedAccount,
+  treasuryAccount,
+  amount
+);
+```
+```

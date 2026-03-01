@@ -199,8 +199,9 @@ Detailed technical documentation is available in the `/docs` directory:
 ### Prerequisites
 - Rust 1.82.0 or higher
 - Node.js 20+ and Yarn
-- Solana CLI 2.0+
-- Anchor CLI 0.31+
+- Solana CLI 1.18.0+
+- Anchor CLI 0.29.0+
+- Docker and Docker Compose (for containerized deployment)
 
 ### Build Instructions
 
@@ -230,6 +231,110 @@ anchor test
 # Execute fuzz tests
 cd trident-tests && cargo fuzz run fuzz_initialize
 ```
+
+---
+
+## CI/CD Pipeline
+
+The project includes a comprehensive CI/CD pipeline via GitHub Actions that runs on every push and pull request.
+
+### Pipeline Overview
+
+| Stage | Jobs | Description |
+|-------|------|-------------|
+| Build | 6 jobs | Build all components (programs, backend, CLI, SDK, frontend) |
+| Test | 3 jobs | Run Rust, TypeScript, and Anchor tests |
+| Security | 2 jobs | Cargo audit and NPM audit |
+| Deploy | 2 jobs | Docker images and program deployment (main only) |
+
+### Build Jobs
+
+- `build-solana-program`: Compiles SBF programs for Solana
+- `build-backend`: Builds the Rust/Axum backend
+- `build-cli`: Builds the CLI binary
+- `build-admin-tui`: Builds the Admin TUI
+- `build-sdk`: Builds the TypeScript SDK
+- `build-frontend`: Builds the Next.js frontend
+
+### Security Scanning
+
+- **Cargo Audit**: Scans Rust dependencies for vulnerabilities
+- **NPM Audit**: Scans Node.js dependencies for vulnerabilities
+
+### Deployment
+
+On push to `main` branch:
+1. Docker images are built and pushed to GitHub Container Registry
+2. Solana programs can be deployed to mainnet (requires secrets configuration)
+
+### Required Secrets
+
+For production deployments, configure these secrets in GitHub:
+
+| Secret | Description |
+|--------|-------------|
+| `SOLANA_RPC_URL` | Mainnet RPC endpoint |
+| `DEPLOY_KEYPAIR` | Keypair for program deployment |
+
+---
+
+## Docker Deployment
+
+### Quick Start (Development)
+
+```bash
+# Clone and configure
+git clone https://github.com/your-org/solana-stablecoin-standard.git
+cd solana-stablecoin-standard
+
+# Create .env file
+cp .env.example .env
+# Edit .env with your configuration
+
+# Start services
+docker-compose up -d
+
+# Check health
+curl http://localhost:3001/health/detail
+```
+
+### Production Deployment
+
+```bash
+# Production with nginx reverse proxy
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+### Services
+
+| Service | Port | Description |
+|---------|------|-------------|
+| `postgres` | 5432 | PostgreSQL database |
+| `redis` | 6379 | Redis cache |
+| `backend` | 3001 | API server |
+| `nginx` | 80/443 | Reverse proxy (production) |
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `REDIS_URL` | Recommended | Redis connection string |
+| `SOLANA_RPC_URL` | Yes | Solana RPC endpoint |
+| `PROGRAM_ID` | Yes | SSS Token program ID |
+| `JWT_SECRET` | Yes | JWT signing secret |
+| `AUTHORITY_KEYPAIR` | For transactions | Base58 authority keypair |
+| `CORS_ORIGINS` | Production | Allowed CORS origins |
+
+### Health Endpoints
+
+| Endpoint | Purpose |
+|----------|---------|
+| `/health` | Basic health check |
+| `/health/detail` | Detailed component status |
+| `/health/ready` | Kubernetes readiness probe |
+| `/health/live` | Kubernetes liveness probe |
+| `/metrics` | Prometheus metrics |
 
 ## Security
 

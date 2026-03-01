@@ -315,3 +315,156 @@ async function migrate(sss1Amount: number) {
 - **Code Examples**: examples/sss1/
 - **Issue Tracking**: GitHub Issues
 - **Community Support**: Superteam Brazil Discord
+
+---
+
+## 20. CLI Reference
+
+The `sss-token` CLI provides all operations for SSS-1:
+
+### Initialization
+
+```bash
+sss-token init \
+  --preset 1 \
+  --name "My Stablecoin" \
+  --symbol "MYUSD" \
+  --uri "https://example.com/metadata.json" \
+  --decimals 6
+```
+
+### Supply Operations
+
+```bash
+# Mint tokens
+sss-token mint <recipient> <amount> --stablecoin <pda>
+
+# Burn tokens
+sss-token burn <amount> --stablecoin <pda>
+```
+
+### Account Management
+
+```bash
+# Freeze account
+sss-token freeze <account> --stablecoin <pda>
+
+# Thaw account
+sss-token thaw <account> --stablecoin <pda>
+```
+
+### Emergency Operations
+
+```bash
+# Pause all operations
+sss-token pause --stablecoin <pda>
+
+# Unpause operations
+sss-token unpause --stablecoin <pda>
+```
+
+### Role Management
+
+```bash
+# Assign role
+sss-token assign-role <role> <account> --stablecoin <pda>
+
+# Revoke role
+sss-token revoke-role <account> --stablecoin <pda>
+```
+
+### Minter Management
+
+```bash
+# Add minter with quota
+sss-token minters add <account> --quota 1000000 --stablecoin <pda>
+
+# Remove minter
+sss-token minters remove <account> --stablecoin <pda>
+
+# View minter info
+sss-token minters info <account> --stablecoin <pda>
+
+# Set quota
+sss-token minters set-quota <account> <quota> --stablecoin <pda>
+
+# List minters
+sss-token minters list --stablecoin <pda>
+```
+
+### Status and Monitoring
+
+```bash
+# View stablecoin status
+sss-token status --stablecoin <pda>
+
+# Export status to JSON
+sss-token status --export status.json --stablecoin <pda>
+
+# View total supply
+sss-token supply --stablecoin <pda>
+
+# List holders
+sss-token holders --min-balance 1000 --stablecoin <pda>
+
+# View audit logs
+sss-token audit-log --action mint --format csv --output audit.csv
+
+# Derive PDAs
+sss-token derive --stablecoin <pda>
+```
+
+### Authority Management
+
+```bash
+# Transfer master authority
+sss-token transfer-authority <new_authority> --stablecoin <pda>
+```
+
+---
+
+## 21. API Endpoints
+
+SSS-1 operations are accessible via REST API:
+
+### Stablecoin Management
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/stablecoin` | POST | Create new stablecoin |
+| `/api/v1/stablecoin/:id` | GET | Get stablecoin details |
+| `/api/v1/stablecoin/:id/status` | GET | Get on-chain status |
+
+### Operations
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/stablecoin/:id/mint` | POST | Mint tokens |
+| `/api/v1/stablecoin/:id/burn` | POST | Burn tokens |
+| `/api/v1/stablecoin/:id/transfer` | POST | Transfer tokens |
+
+### Admin Operations
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/stablecoin/:id/pause` | POST | Pause operations |
+| `/api/v1/stablecoin/:id/unpause` | POST | Resume operations |
+| `/api/v1/stablecoin/:id/freeze/:account` | POST | Freeze account |
+| `/api/v1/stablecoin/:id/thaw/:account` | POST | Unfreeze account |
+
+### Role Management
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/stablecoin/:id/roles` | GET | List roles |
+| `/api/v1/stablecoin/:id/roles` | POST | Assign role |
+| `/api/v1/stablecoin/:id/roles/:account` | DELETE | Revoke role |
+
+### Minter Management
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/stablecoin/:id/minters` | GET | List minters |
+| `/api/v1/stablecoin/:id/minters` | POST | Add minter |
+| `/api/v1/stablecoin/:id/minters/:account` | DELETE | Remove minter |
+| `/api/v1/stablecoin/:id/minters/:account/quota` | PUT | Update quota |
