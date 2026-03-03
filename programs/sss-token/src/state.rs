@@ -21,7 +21,6 @@ pub struct StablecoinState {
     pub preset: u8,
     pub compliance_enabled: bool,
     pub bump: u8,
-    #[max_len(64)]
     pub _reserved: [u8; 64],
 }
 
@@ -32,7 +31,6 @@ pub struct MinterInfo {
     pub quota: u64,
     pub minted_amount: u64,
     pub bump: u8,
-    #[max_len(32)]
     pub _reserved: [u8; 32],
 }
 
@@ -44,7 +42,6 @@ pub struct RoleAssignment {
     pub assigned_by: Pubkey,
     pub assigned_at: i64,
     pub bump: u8,
-    #[max_len(32)]
     pub _reserved: [u8; 32],
 }
 
@@ -57,7 +54,6 @@ pub struct BlacklistEntry {
     pub blacklisted_by: Pubkey,
     pub blacklisted_at: i64,
     pub bump: u8,
-    #[max_len(32)]
     pub _reserved: [u8; 32],
 }
 

@@ -30,10 +30,12 @@ pub enum StablecoinError {
     RoleNotFound,
     #[msg("Name too long (max 32 chars)")]
     NameTooLong,
-    #[msg("Symbol too long (max 16 chars)")]
+    #[msg("Symbol too long (max 10 chars)")]
     SymbolTooLong,
     #[msg("URI too long (max 200 chars)")]
     UriTooLong,
     #[msg("Invalid decimals - must be <= 9")]
     InvalidDecimals,
+    #[msg("Reason too long (max 200 chars)")]
+    ReasonTooLong,
 }

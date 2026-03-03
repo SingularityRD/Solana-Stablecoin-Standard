@@ -38,6 +38,7 @@ pub async fn assign(
     Path(id): Path<Uuid>,
     Json(req): Json<AssignRoleRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    // TODO: Execute corresponding on-chain instruction before/after DB update
     // Validate input using validator crate (includes role and pubkey validation)
     req.validate().map_err(validation_error_to_api_error)?;
     
@@ -97,6 +98,7 @@ pub async fn revoke(
     AuthUser(user): AuthUser,
     Path((id, account)): Path<(Uuid, String)>,
 ) -> ApiResult<impl IntoResponse> {
+    // TODO: Execute corresponding on-chain instruction before/after DB update
     // Get stablecoin and check ownership
     let _stablecoin = get_stablecoin_for_admin(&state, id, &user).await?;
     

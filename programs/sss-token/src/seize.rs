@@ -3,8 +3,11 @@ use crate::error::StablecoinError;
 use crate::events::*;
 use crate::state::*;
 use anchor_lang::prelude::*;
-use anchor_spl::token_2022::{self, TransferChecked};
+use anchor_spl::token_2022::{
+    self, FreezeAccount as SplFreeze, ThawAccount as SplThaw, TransferChecked,
+};
 use anchor_spl::token_interface::{Mint as TokenMint, TokenAccount, TokenInterface};
+use anchor_spl::token_interface::spl_token_2022::state::AccountState;
 
 #[derive(Accounts)]
 pub struct Seize<'info> {
@@ -58,6 +61,24 @@ pub fn handler(ctx: Context<Seize>, amount: u64) -> Result<()> {
     let authority_seeds = &[VAULT_SEED, asset_mint_key.as_ref(), &[state.bump]];
     let signer = &[&authority_seeds[..]];
 
+    // Check if source account is frozen - if so, thaw before transfer
+    let was_frozen = ctx.accounts.from.state == AccountState::Frozen;
+
+    if was_frozen {
+        let cpi_thaw = SplThaw {
+            account: ctx.accounts.from.to_account_info(),
+            mint: ctx.accounts.asset_mint.to_account_info(),
+            authority: state.to_account_info(),
+        };
+        let cpi_ctx_thaw = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            cpi_thaw,
+            signer,
+        );
+        token_2022::thaw_account(cpi_ctx_thaw)?;
+    }
+
+    // Execute the seizure transfer
     let cpi_accounts = TransferChecked {
         from: ctx.accounts.from.to_account_info(),
         mint: ctx.accounts.asset_mint.to_account_info(),
@@ -72,6 +93,21 @@ pub fn handler(ctx: Context<Seize>, amount: u64) -> Result<()> {
     );
 
     token_2022::transfer_checked(cpi_ctx, amount, ctx.accounts.asset_mint.decimals)?;
+
+    // Re-freeze the source account if it was frozen before seizure
+    if was_frozen {
+        let cpi_freeze = SplFreeze {
+            account: ctx.accounts.from.to_account_info(),
+            mint: ctx.accounts.asset_mint.to_account_info(),
+            authority: state.to_account_info(),
+        };
+        let cpi_ctx_freeze = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            cpi_freeze,
+            signer,
+        );
+        token_2022::freeze_account(cpi_ctx_freeze)?;
+    }
 
     emit!(Seized {
         stablecoin: state.key(),

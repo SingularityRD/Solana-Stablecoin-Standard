@@ -92,20 +92,27 @@ pub async fn rate_limit_middleware(
     next: Next,
 ) -> Result<Response, ApiError> {
     // Get client IP from various sources
-    let client_ip = request
-        .headers()
-        .get("x-forwarded-for")
-        .and_then(|h| h.to_str().ok())
-        .or_else(|| {
-            request
-                .headers()
-                .get("x-real-ip")
-                .and_then(|h| h.to_str().ok())
-        })
-        .unwrap_or("unknown");
+    // Get real client IP using ConnectInfo
+    let mut client_ip = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|info| info.0.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    // Check if behind trusted proxy (configured via env)
+    let trust_proxy = std::env::var("TRUST_PROXY").unwrap_or_else(|_| "false".to_string()) == "true";
+    
+    if trust_proxy {
+        if let Some(forwarded) = request.headers().get("x-forwarded-for").and_then(|h| h.to_str().ok()) {
+            client_ip = forwarded.split(',').next().unwrap_or("").trim().to_string();
+        } else if let Some(real_ip) = request.headers().get("x-real-ip").and_then(|h| h.to_str().ok()) {
+            client_ip = real_ip.to_string();
+        }
+    }
     
     // Rate limit by IP
-    RATE_LIMITER.check(client_ip).await?;
+    // Rate limit by IP
+    RATE_LIMITER.check(&client_ip).await?;
     
     // Also check by API key if present
     if let Some(api_key) = request.headers().get("x-api-key") {

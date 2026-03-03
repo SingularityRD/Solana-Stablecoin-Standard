@@ -39,11 +39,20 @@ pub async fn pause(
     Path(id): Path<Uuid>,
 ) -> ApiResult<impl IntoResponse> {
     // Get stablecoin and check ownership
-    let _stablecoin = get_stablecoin_for_admin(&state, id, &user).await?;
+    let stablecoin = get_stablecoin_for_admin(&state, id, &user).await?;
     
-    // Build pause transaction
-    let tx_signature = format!("pause_{}", id);
+    // Parse pubkeys
+    let stablecoin_pda: Pubkey = stablecoin.stablecoin_pda.parse()
+        .map_err(|_| ApiError::Internal("Invalid stablecoin PDA".to_string()))?;
+    let authority_pubkey: Pubkey = stablecoin.authority_pubkey.parse()
+        .map_err(|_| ApiError::Internal("Invalid authority pubkey".to_string()))?;
     
+    // Build and send pause transaction
+    let instruction = state.solana.build_pause_instruction(&stablecoin_pda, &authority_pubkey);
+    let tx_signature = state.solana.build_and_send_instruction(vec![instruction], &[])
+        .await
+        .map_err(|e| ApiError::Internal(format!("Failed to pause: {}", e)))?
+        .to_string();
     // Log audit
     audit(
         &state.db,
@@ -69,11 +78,20 @@ pub async fn unpause(
     Path(id): Path<Uuid>,
 ) -> ApiResult<impl IntoResponse> {
     // Get stablecoin and check ownership
-    let _stablecoin = get_stablecoin_for_admin(&state, id, &user).await?;
+    let stablecoin = get_stablecoin_for_admin(&state, id, &user).await?;
     
-    // Build unpause transaction
-    let tx_signature = format!("unpause_{}", id);
+    // Parse pubkeys
+    let stablecoin_pda: Pubkey = stablecoin.stablecoin_pda.parse()
+        .map_err(|_| ApiError::Internal("Invalid stablecoin PDA".to_string()))?;
+    let authority_pubkey: Pubkey = stablecoin.authority_pubkey.parse()
+        .map_err(|_| ApiError::Internal("Invalid authority pubkey".to_string()))?;
     
+    // Build and send unpause transaction
+    let instruction = state.solana.build_unpause_instruction(&stablecoin_pda, &authority_pubkey);
+    let tx_signature = state.solana.build_and_send_instruction(vec![instruction], &[])
+        .await
+        .map_err(|e| ApiError::Internal(format!("Failed to unpause: {}", e)))?
+        .to_string();
     // Log audit
     audit(
         &state.db,
@@ -107,11 +125,28 @@ pub async fn freeze(
         .map_err(|_| ApiError::Validation("Invalid account pubkey".to_string()))?;
     
     // Get stablecoin and check ownership
-    let _stablecoin = get_stablecoin_for_admin(&state, id, &user).await?;
+    let stablecoin = get_stablecoin_for_admin(&state, id, &user).await?;
     
-    // Build freeze transaction
-    let tx_signature = format!("freeze_{}_{}", id, &account[..8]);
+    // Parse pubkeys
+    let stablecoin_pda: Pubkey = stablecoin.stablecoin_pda.parse()
+        .map_err(|_| ApiError::Internal("Invalid stablecoin PDA".to_string()))?;
+    let authority_pubkey: Pubkey = stablecoin.authority_pubkey.parse()
+        .map_err(|_| ApiError::Internal("Invalid authority pubkey".to_string()))?;
+    let asset_mint: Pubkey = stablecoin.asset_mint.parse()
+        .map_err(|_| ApiError::Internal("Invalid asset mint".to_string()))?;
     
+    // Build and send freeze transaction
+    let instruction = state.solana.build_freeze_instruction(
+        &stablecoin_pda,
+        &asset_mint,
+        &authority_pubkey,
+        &_account_pubkey,
+        None, // role assignment
+    );
+    let tx_signature = state.solana.build_and_send_instruction(vec![instruction], &[])
+        .await
+        .map_err(|e| ApiError::Internal(format!("Failed to freeze: {}", e)))?
+        .to_string();
     // Log audit
     audit(
         &state.db,
@@ -145,11 +180,28 @@ pub async fn thaw(
         .map_err(|_| ApiError::Validation("Invalid account pubkey".to_string()))?;
     
     // Get stablecoin and check ownership
-    let _stablecoin = get_stablecoin_for_admin(&state, id, &user).await?;
+    let stablecoin = get_stablecoin_for_admin(&state, id, &user).await?;
     
-    // Build thaw transaction
-    let tx_signature = format!("thaw_{}_{}", id, &account[..8]);
+    // Parse pubkeys
+    let stablecoin_pda: Pubkey = stablecoin.stablecoin_pda.parse()
+        .map_err(|_| ApiError::Internal("Invalid stablecoin PDA".to_string()))?;
+    let authority_pubkey: Pubkey = stablecoin.authority_pubkey.parse()
+        .map_err(|_| ApiError::Internal("Invalid authority pubkey".to_string()))?;
+    let asset_mint: Pubkey = stablecoin.asset_mint.parse()
+        .map_err(|_| ApiError::Internal("Invalid asset mint".to_string()))?;
     
+    // Build and send thaw transaction
+    let instruction = state.solana.build_thaw_instruction(
+        &stablecoin_pda,
+        &asset_mint,
+        &authority_pubkey,
+        &_account_pubkey,
+        None, // role assignment
+    );
+    let tx_signature = state.solana.build_and_send_instruction(vec![instruction], &[])
+        .await
+        .map_err(|e| ApiError::Internal(format!("Failed to thaw: {}", e)))?
+        .to_string();
     // Log audit
     audit(
         &state.db,
@@ -192,9 +244,32 @@ pub async fn seize(
         return Err(ApiError::BadRequest("Seizure only available for SSS-2 or higher".to_string()));
     }
     
-    // Build seize transaction
-    let tx_signature = format!("seize_{}_{}_{}", id, &req.from_account[..8], req.amount);
+    // Parse pubkeys
+    let stablecoin_pda: Pubkey = stablecoin.stablecoin_pda.parse()
+        .map_err(|_| ApiError::Internal("Invalid stablecoin PDA".to_string()))?;
+    let authority_pubkey: Pubkey = stablecoin.authority_pubkey.parse()
+        .map_err(|_| ApiError::Internal("Invalid authority pubkey".to_string()))?;
+    let asset_mint: Pubkey = stablecoin.asset_mint.parse()
+        .map_err(|_| ApiError::Internal("Invalid asset mint".to_string()))?;
+    let from_pubkey: Pubkey = req.from_account.parse()
+        .map_err(|_| ApiError::Validation("Invalid from_account pubkey".to_string()))?;
+    let to_pubkey: Pubkey = req.to_account.parse()
+        .map_err(|_| ApiError::Validation("Invalid to_account pubkey".to_string()))?;
     
+    // Build and send seize transaction
+    let instruction = state.solana.build_seize_instruction(
+        &stablecoin_pda,
+        &asset_mint,
+        &authority_pubkey,
+        &from_pubkey,
+        &to_pubkey,
+        req.amount,
+        None, // role assignment
+    );
+    let tx_signature = state.solana.build_and_send_instruction(vec![instruction], &[])
+        .await
+        .map_err(|e| ApiError::Internal(format!("Failed to seize: {}", e)))?
+        .to_string();
     // Log audit
     audit(
         &state.db,

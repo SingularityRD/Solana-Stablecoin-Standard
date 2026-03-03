@@ -375,14 +375,31 @@ pub fn validate_webhook_url(url: &str) -> Result<(), validator::ValidationError>
             .with_message(std::borrow::Cow::Borrowed("URL must use HTTP or HTTPS protocol")));
     }
     
-    // In production, require HTTPS (skip for localhost)
+    // In production, require HTTPS and reject private/loopback IPs
     #[cfg(not(debug_assertions))]
     {
-        if scheme != "https" && parsed.host_str() != Some("localhost") {
+        if scheme != "https" {
             return Err(validator::ValidationError::new("url")
                 .with_message(std::borrow::Cow::Borrowed(
                     "HTTPS is required for production webhook URLs"
                 )));
+        }
+        
+        // Prevent SSRF attacks
+        if let Some(host) = parsed.host_str() {
+            if host == "localhost" {
+                return Err(validator::ValidationError::new("url")
+                    .with_message(std::borrow::Cow::Borrowed("Localhost is not allowed")));
+            }
+            if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+                if ip.is_loopback() || (ip.is_ipv4() && match ip {
+                    std::net::IpAddr::V4(ipv4) => ipv4.is_private(),
+                    _ => false,
+                }) {
+                    return Err(validator::ValidationError::new("url")
+                        .with_message(std::borrow::Cow::Borrowed("Private/loopback IPs are not allowed")));
+                }
+            }
         }
     }
     

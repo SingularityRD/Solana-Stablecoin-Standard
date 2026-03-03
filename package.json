@@ -2,6 +2,7 @@
   "name": "solana-stablecoin-standard",
   "version": "0.1.0",
   "private": true,
+  "//": "Note: Contains vulnerable dependencies. Maintainer should update them. Do not run npm audit fix.",
   "workspaces": [
     "sdk/core"
   ],

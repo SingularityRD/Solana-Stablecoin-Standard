@@ -53,6 +53,11 @@ pub fn handler(ctx: Context<Mint>, amount: u64) -> Result<()> {
     };
 
     require!(is_master || is_minter, StablecoinError::Unauthorized);
+
+    // Non-master minters MUST provide minter_info for quota enforcement
+    if !is_master {
+        require!(ctx.accounts.minter_info.is_some(), StablecoinError::Unauthorized);
+    }
     require!(amount > 0, StablecoinError::ZeroAmount);
     require!(!state.paused, StablecoinError::VaultPaused);
 

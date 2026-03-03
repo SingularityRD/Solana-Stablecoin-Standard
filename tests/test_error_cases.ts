@@ -3,6 +3,8 @@ import { Program } from "@coral-xyz/anchor";
 import { SssToken } from "../target/types/sss_token";
 import { expect } from "chai";
 
+const TOKEN_2022_PROGRAM_ID = new anchor.web3.PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+
 describe("Error Cases", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
@@ -12,6 +14,8 @@ describe("Error Cases", () => {
 
   let stablecoinPda: anchor.web3.PublicKey;
   let stablecoinPdaSss2: anchor.web3.PublicKey;
+  let assetMint: anchor.web3.Keypair;
+  let assetMintSss2: anchor.web3.Keypair;
   const PRESET_SSS_1 = 1;
   const PRESET_SSS_2 = 2;
   const NAME = "Test Stablecoin";
@@ -21,16 +25,18 @@ describe("Error Cases", () => {
 
   before(async () => {
     // Setup SSS-1 stablecoin
+    assetMint = anchor.web3.Keypair.generate();
     const [pda1] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("stablecoin"), authority.publicKey.toBuffer()],
+      [Buffer.from("stablecoin"), assetMint.publicKey.toBuffer()],
       program.programId
     );
     stablecoinPda = pda1;
 
     // Setup SSS-2 stablecoin with different authority
     const sss2Authority = anchor.web3.Keypair.generate();
+    assetMintSss2 = anchor.web3.Keypair.generate();
     const [pda2] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("stablecoin"), sss2Authority.publicKey.toBuffer()],
+      [Buffer.from("stablecoin"), assetMintSss2.publicKey.toBuffer()],
       program.programId
     );
     stablecoinPdaSss2 = pda2;
@@ -40,8 +46,9 @@ describe("Error Cases", () => {
     it("Fails with invalid preset (0)", async () => {
       const invalidPreset = 0;
       const newAuthority = anchor.web3.Keypair.generate();
+      const newAssetMint = anchor.web3.Keypair.generate();
       const [pda] = anchor.web3.PublicKey.findProgramAddressSync(
-        [Buffer.from("stablecoin"), newAuthority.publicKey.toBuffer()],
+        [Buffer.from("stablecoin"), newAssetMint.publicKey.toBuffer()],
         program.programId
       );
 
@@ -51,7 +58,7 @@ describe("Error Cases", () => {
           .accounts({
             authority: newAuthority.publicKey,
             state: pda,
-            assetMint: anchor.web3.PublicKey.default,
+            assetMint: newAssetMint.publicKey,
             systemProgram: anchor.web3.SystemProgram.programId,
           })
           .signers([newAuthority])
@@ -65,8 +72,9 @@ describe("Error Cases", () => {
     it("Fails with invalid preset (3)", async () => {
       const invalidPreset = 3;
       const newAuthority = anchor.web3.Keypair.generate();
+      const newAssetMint = anchor.web3.Keypair.generate();
       const [pda] = anchor.web3.PublicKey.findProgramAddressSync(
-        [Buffer.from("stablecoin"), newAuthority.publicKey.toBuffer()],
+        [Buffer.from("stablecoin"), newAssetMint.publicKey.toBuffer()],
         program.programId
       );
 
@@ -76,7 +84,7 @@ describe("Error Cases", () => {
           .accounts({
             authority: newAuthority.publicKey,
             state: pda,
-            assetMint: anchor.web3.PublicKey.default,
+            assetMint: newAssetMint.publicKey,
             systemProgram: anchor.web3.SystemProgram.programId,
           })
           .signers([newAuthority])
@@ -90,8 +98,9 @@ describe("Error Cases", () => {
     it("Fails with invalid preset (255)", async () => {
       const invalidPreset = 255;
       const newAuthority = anchor.web3.Keypair.generate();
+      const newAssetMint = anchor.web3.Keypair.generate();
       const [pda] = anchor.web3.PublicKey.findProgramAddressSync(
-        [Buffer.from("stablecoin"), newAuthority.publicKey.toBuffer()],
+        [Buffer.from("stablecoin"), newAssetMint.publicKey.toBuffer()],
         program.programId
       );
 
@@ -101,7 +110,7 @@ describe("Error Cases", () => {
           .accounts({
             authority: newAuthority.publicKey,
             state: pda,
-            assetMint: anchor.web3.PublicKey.default,
+            assetMint: newAssetMint.publicKey,
             systemProgram: anchor.web3.SystemProgram.programId,
           })
           .signers([newAuthority])
@@ -115,8 +124,9 @@ describe("Error Cases", () => {
     it("Fails with name too long", async () => {
       const longName = "A".repeat(33);
       const newAuthority = anchor.web3.Keypair.generate();
+      const newAssetMint = anchor.web3.Keypair.generate();
       const [pda] = anchor.web3.PublicKey.findProgramAddressSync(
-        [Buffer.from("stablecoin"), newAuthority.publicKey.toBuffer()],
+        [Buffer.from("stablecoin"), newAssetMint.publicKey.toBuffer()],
         program.programId
       );
 
@@ -126,7 +136,7 @@ describe("Error Cases", () => {
           .accounts({
             authority: newAuthority.publicKey,
             state: pda,
-            assetMint: anchor.web3.PublicKey.default,
+            assetMint: newAssetMint.publicKey,
             systemProgram: anchor.web3.SystemProgram.programId,
           })
           .signers([newAuthority])
@@ -140,8 +150,9 @@ describe("Error Cases", () => {
     it("Fails with symbol too long", async () => {
       const longSymbol = "A".repeat(17);
       const newAuthority = anchor.web3.Keypair.generate();
+      const newAssetMint = anchor.web3.Keypair.generate();
       const [pda] = anchor.web3.PublicKey.findProgramAddressSync(
-        [Buffer.from("stablecoin"), newAuthority.publicKey.toBuffer()],
+        [Buffer.from("stablecoin"), newAssetMint.publicKey.toBuffer()],
         program.programId
       );
 
@@ -151,7 +162,7 @@ describe("Error Cases", () => {
           .accounts({
             authority: newAuthority.publicKey,
             state: pda,
-            assetMint: anchor.web3.PublicKey.default,
+            assetMint: newAssetMint.publicKey,
             systemProgram: anchor.web3.SystemProgram.programId,
           })
           .signers([newAuthority])
@@ -165,8 +176,9 @@ describe("Error Cases", () => {
     it("Fails with URI too long", async () => {
       const longUri = "https://example.com/" + "a".repeat(200);
       const newAuthority = anchor.web3.Keypair.generate();
+      const newAssetMint = anchor.web3.Keypair.generate();
       const [pda] = anchor.web3.PublicKey.findProgramAddressSync(
-        [Buffer.from("stablecoin"), newAuthority.publicKey.toBuffer()],
+        [Buffer.from("stablecoin"), newAssetMint.publicKey.toBuffer()],
         program.programId
       );
 
@@ -176,7 +188,7 @@ describe("Error Cases", () => {
           .accounts({
             authority: newAuthority.publicKey,
             state: pda,
-            assetMint: anchor.web3.PublicKey.default,
+            assetMint: newAssetMint.publicKey,
             systemProgram: anchor.web3.SystemProgram.programId,
           })
           .signers([newAuthority])
@@ -190,8 +202,9 @@ describe("Error Cases", () => {
     it("Fails with invalid decimals (> 9)", async () => {
       const invalidDecimals = 10;
       const newAuthority = anchor.web3.Keypair.generate();
+      const newAssetMint = anchor.web3.Keypair.generate();
       const [pda] = anchor.web3.PublicKey.findProgramAddressSync(
-        [Buffer.from("stablecoin"), newAuthority.publicKey.toBuffer()],
+        [Buffer.from("stablecoin"), newAssetMint.publicKey.toBuffer()],
         program.programId
       );
 
@@ -201,7 +214,7 @@ describe("Error Cases", () => {
           .accounts({
             authority: newAuthority.publicKey,
             state: pda,
-            assetMint: anchor.web3.PublicKey.default,
+            assetMint: newAssetMint.publicKey,
             systemProgram: anchor.web3.SystemProgram.programId,
           })
           .signers([newAuthority])
@@ -215,8 +228,9 @@ describe("Error Cases", () => {
     it("Fails with invalid decimals (255)", async () => {
       const invalidDecimals = 255;
       const newAuthority = anchor.web3.Keypair.generate();
+      const newAssetMint = anchor.web3.Keypair.generate();
       const [pda] = anchor.web3.PublicKey.findProgramAddressSync(
-        [Buffer.from("stablecoin"), newAuthority.publicKey.toBuffer()],
+        [Buffer.from("stablecoin"), newAssetMint.publicKey.toBuffer()],
         program.programId
       );
 
@@ -226,7 +240,7 @@ describe("Error Cases", () => {
           .accounts({
             authority: newAuthority.publicKey,
             state: pda,
-            assetMint: anchor.web3.PublicKey.default,
+            assetMint: newAssetMint.publicKey,
             systemProgram: anchor.web3.SystemProgram.programId,
           })
           .signers([newAuthority])
@@ -246,7 +260,7 @@ describe("Error Cases", () => {
           .accounts({
             authority: authority.publicKey,
             state: stablecoinPda,
-            assetMint: anchor.web3.PublicKey.default,
+            assetMint: assetMint.publicKey,
             systemProgram: anchor.web3.SystemProgram.programId,
           })
           .rpc();
@@ -261,10 +275,15 @@ describe("Error Cases", () => {
 
       try {
         await program.methods
-          .mint(recipient.publicKey, zeroAmount)
+          .mint(zeroAmount)
           .accounts({
             authority: authority.publicKey,
             state: stablecoinPda,
+            roleAssignment: null,
+            minterInfo: null,
+            assetMint: assetMint.publicKey,
+            recipient: recipient.publicKey,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
           })
           .rpc();
         expect.fail("Should have thrown ZeroAmount error");
@@ -280,10 +299,15 @@ describe("Error Cases", () => {
 
       try {
         await program.methods
-          .mint(recipient.publicKey, amount)
+          .mint(amount)
           .accounts({
             authority: unauthorized.publicKey,
             state: stablecoinPda,
+            roleAssignment: null,
+            minterInfo: null,
+            assetMint: assetMint.publicKey,
+            recipient: recipient.publicKey,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
           })
           .signers([unauthorized])
           .rpc();
@@ -297,6 +321,7 @@ describe("Error Cases", () => {
   describe("Burn Errors", () => {
     it("Fails burn with zero amount", async () => {
       const zeroAmount = new anchor.BN(0);
+      const from = anchor.web3.Keypair.generate().publicKey;
 
       try {
         await program.methods
@@ -304,6 +329,10 @@ describe("Error Cases", () => {
           .accounts({
             authority: authority.publicKey,
             state: stablecoinPda,
+            roleAssignment: null,
+            assetMint: assetMint.publicKey,
+            from,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
           })
           .rpc();
         expect.fail("Should have thrown ZeroAmount error");
@@ -315,6 +344,7 @@ describe("Error Cases", () => {
     it("Fails burn with unauthorized account", async () => {
       const unauthorized = anchor.web3.Keypair.generate();
       const amount = new anchor.BN(1_000);
+      const from = anchor.web3.Keypair.generate().publicKey;
 
       try {
         await program.methods
@@ -322,6 +352,10 @@ describe("Error Cases", () => {
           .accounts({
             authority: unauthorized.publicKey,
             state: stablecoinPda,
+            roleAssignment: null,
+            assetMint: assetMint.publicKey,
+            from,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
           })
           .signers([unauthorized])
           .rpc();
@@ -398,10 +432,14 @@ describe("Error Cases", () => {
 
       try {
         await program.methods
-          .freezeAccount(account)
+          .freezeAccount()
           .accounts({
             authority: unauthorized.publicKey,
             state: stablecoinPda,
+            roleAssignment: null,
+            assetMint: assetMint.publicKey,
+            account,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
           })
           .signers([unauthorized])
           .rpc();
@@ -417,10 +455,14 @@ describe("Error Cases", () => {
 
       try {
         await program.methods
-          .thawAccount(account)
+          .thawAccount()
           .accounts({
             authority: unauthorized.publicKey,
             state: stablecoinPda,
+            roleAssignment: null,
+            assetMint: assetMint.publicKey,
+            account,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
           })
           .signers([unauthorized])
           .rpc();
@@ -440,13 +482,15 @@ describe("SSS-2 Compliance Error Cases", () => {
   const authority = provider.wallet;
 
   let stablecoinPda: anchor.web3.PublicKey;
+  let assetMint: anchor.web3.Keypair;
   let blacklister: anchor.web3.Keypair;
   let seizer: anchor.web3.Keypair;
 
   before(async () => {
     // Create a unique authority for this test suite
+    assetMint = anchor.web3.Keypair.generate();
     const [pda] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("stablecoin"), authority.publicKey.toBuffer()],
+      [Buffer.from("stablecoin"), assetMint.publicKey.toBuffer()],
       program.programId
     );
     stablecoinPda = pda;
@@ -471,6 +515,7 @@ describe("SSS-2 Compliance Error Cases", () => {
           .accounts({
             authority: unauthorized.publicKey,
             state: stablecoinPda,
+            roleAssignment: null,
             entry: entryPda,
             account: badActor.publicKey,
             systemProgram: anchor.web3.SystemProgram.programId,
@@ -498,6 +543,7 @@ describe("SSS-2 Compliance Error Cases", () => {
           .accounts({
             authority: unauthorized.publicKey,
             state: stablecoinPda,
+            roleAssignment: null,
             entry: entryPda,
             account: badActor.publicKey,
           })
@@ -519,12 +565,15 @@ describe("SSS-2 Compliance Error Cases", () => {
 
       try {
         await program.methods
-          .seize(amount, to.publicKey)
+          .seize(amount)
           .accounts({
             authority: unauthorized.publicKey,
             state: stablecoinPda,
+            roleAssignment: null,
+            assetMint: assetMint.publicKey,
             from: from.publicKey,
             to: to.publicKey,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
           })
           .signers([unauthorized])
           .rpc();
@@ -541,12 +590,15 @@ describe("SSS-2 Compliance Error Cases", () => {
 
       try {
         await program.methods
-          .seize(zeroAmount, to.publicKey)
+          .seize(zeroAmount)
           .accounts({
             authority: seizer.publicKey,
             state: stablecoinPda,
+            roleAssignment: null,
+            assetMint: assetMint.publicKey,
             from: from.publicKey,
             to: to.publicKey,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
           })
           .signers([seizer])
           .rpc();
@@ -574,11 +626,13 @@ describe("Quota Exceeded Error Cases", () => {
   const authority = provider.wallet;
 
   let stablecoinPda: anchor.web3.PublicKey;
+  let assetMint: anchor.web3.Keypair;
   let minter: anchor.web3.Keypair;
 
   before(async () => {
+    assetMint = anchor.web3.Keypair.generate();
     const [pda] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("stablecoin"), authority.publicKey.toBuffer()],
+      [Buffer.from("stablecoin"), assetMint.publicKey.toBuffer()],
       program.programId
     );
     stablecoinPda = pda;
@@ -614,11 +668,15 @@ describe("Quota Exceeded Error Cases", () => {
 
     try {
       await program.methods
-        .mint(recipient.publicKey, amount)
+        .mint(amount)
         .accounts({
           authority: minter.publicKey,
           state: stablecoinPda,
+          roleAssignment: null,
           minterInfo: minterInfoPda,
+          assetMint: assetMint.publicKey,
+          recipient: recipient.publicKey,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
         })
         .signers([minter])
         .rpc();
@@ -666,8 +724,9 @@ describe("Edge Cases", () => {
   it("Handles maximum valid name length (32 chars)", async () => {
     const maxName = "A".repeat(32);
     const newAuthority = anchor.web3.Keypair.generate();
+    const newAssetMint = anchor.web3.Keypair.generate();
     const [pda] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("stablecoin"), newAuthority.publicKey.toBuffer()],
+      [Buffer.from("stablecoin"), newAssetMint.publicKey.toBuffer()],
       program.programId
     );
 
@@ -677,7 +736,7 @@ describe("Edge Cases", () => {
       .accounts({
         authority: newAuthority.publicKey,
         state: pda,
-        assetMint: anchor.web3.PublicKey.default,
+        assetMint: newAssetMint.publicKey,
         systemProgram: anchor.web3.SystemProgram.programId,
       })
       .signers([newAuthority])
@@ -691,8 +750,9 @@ describe("Edge Cases", () => {
   it("Handles maximum valid symbol length (10 chars)", async () => {
     const maxSymbol = "ABCDEFGHIJ";
     const newAuthority = anchor.web3.Keypair.generate();
+    const newAssetMint = anchor.web3.Keypair.generate();
     const [pda] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("stablecoin"), newAuthority.publicKey.toBuffer()],
+      [Buffer.from("stablecoin"), newAssetMint.publicKey.toBuffer()],
       program.programId
     );
 
@@ -702,7 +762,7 @@ describe("Edge Cases", () => {
       .accounts({
         authority: newAuthority.publicKey,
         state: pda,
-        assetMint: anchor.web3.PublicKey.default,
+        assetMint: newAssetMint.publicKey,
         systemProgram: anchor.web3.SystemProgram.programId,
       })
       .signers([newAuthority])
@@ -715,8 +775,9 @@ describe("Edge Cases", () => {
   it("Handles maximum valid decimals (9)", async () => {
     const maxDecimals = 9;
     const newAuthority = anchor.web3.Keypair.generate();
+    const newAssetMint = anchor.web3.Keypair.generate();
     const [pda] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("stablecoin"), newAuthority.publicKey.toBuffer()],
+      [Buffer.from("stablecoin"), newAssetMint.publicKey.toBuffer()],
       program.programId
     );
 
@@ -726,7 +787,7 @@ describe("Edge Cases", () => {
       .accounts({
         authority: newAuthority.publicKey,
         state: pda,
-        assetMint: anchor.web3.PublicKey.default,
+        assetMint: newAssetMint.publicKey,
         systemProgram: anchor.web3.SystemProgram.programId,
       })
       .signers([newAuthority])
@@ -739,8 +800,9 @@ describe("Edge Cases", () => {
   it("Handles zero decimals", async () => {
     const zeroDecimals = 0;
     const newAuthority = anchor.web3.Keypair.generate();
+    const newAssetMint = anchor.web3.Keypair.generate();
     const [pda] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("stablecoin"), newAuthority.publicKey.toBuffer()],
+      [Buffer.from("stablecoin"), newAssetMint.publicKey.toBuffer()],
       program.programId
     );
 
@@ -750,7 +812,7 @@ describe("Edge Cases", () => {
       .accounts({
         authority: newAuthority.publicKey,
         state: pda,
-        assetMint: anchor.web3.PublicKey.default,
+        assetMint: newAssetMint.publicKey,
         systemProgram: anchor.web3.SystemProgram.programId,
       })
       .signers([newAuthority])
@@ -762,8 +824,9 @@ describe("Edge Cases", () => {
 
   it("SSS-2 preset enables compliance", async () => {
     const newAuthority = anchor.web3.Keypair.generate();
+    const newAssetMint = anchor.web3.Keypair.generate();
     const [pda] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("stablecoin"), newAuthority.publicKey.toBuffer()],
+      [Buffer.from("stablecoin"), newAssetMint.publicKey.toBuffer()],
       program.programId
     );
 
@@ -772,7 +835,7 @@ describe("Edge Cases", () => {
       .accounts({
         authority: newAuthority.publicKey,
         state: pda,
-        assetMint: anchor.web3.PublicKey.default,
+        assetMint: newAssetMint.publicKey,
         systemProgram: anchor.web3.SystemProgram.programId,
       })
       .signers([newAuthority])

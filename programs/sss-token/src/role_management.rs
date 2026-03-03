@@ -34,19 +34,9 @@ pub fn handler(ctx: Context<AssignRole>, role: Role) -> Result<()> {
     assignment.assigned_by = ctx.accounts.authority.key();
     assignment.assigned_at = Clock::get()?.unix_timestamp;
     assignment.bump = ctx.bumps.assignment;
-
-    let role_name = match role {
-        Role::Master => "Master",
-        Role::Minter => "Minter",
-        Role::Burner => "Burner",
-        Role::Blacklister => "Blacklister",
-        Role::Pauser => "Pauser",
-        Role::Seizer => "Seizer",
-    };
-
     emit!(RoleAssigned {
         stablecoin: ctx.accounts.state.key(),
-        role: role_name.to_string(),
+        role: role.clone(),
         account: ctx.accounts.account.key(),
         assigned_by: ctx.accounts.authority.key(),
     });
@@ -73,21 +63,12 @@ pub struct RevokeRole<'info> {
 }
 
 pub fn revoke_handler(ctx: Context<RevokeRole>) -> Result<()> {
-    let role_name = match ctx.accounts.assignment.role {
-        Role::Master => "Master",
-        Role::Minter => "Minter",
-        Role::Burner => "Burner",
-        Role::Blacklister => "Blacklister",
-        Role::Pauser => "Pauser",
-        Role::Seizer => "Seizer",
-    };
-
-    let account = ctx.accounts.assignment.account;
-
+    let revoked_role = ctx.accounts.assignment.role.clone();
+    let revoked_account = ctx.accounts.assignment.account;
     emit!(RoleRevoked {
         stablecoin: ctx.accounts.state.key(),
-        role: role_name.to_string(),
-        account,
+        role: revoked_role,
+        account: revoked_account,
     });
 
     Ok(())

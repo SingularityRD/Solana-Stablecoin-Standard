@@ -44,3 +44,35 @@ export class VaultPausedError extends StablecoinError {
 export class MathOverflowError extends StablecoinError {
   constructor() { super('Arithmetic overflow'); }
 }
+
+export class InvalidMetadataError extends StablecoinError {
+  constructor() { super('Invalid metadata'); }
+}
+
+export class RoleAlreadyExistsError extends StablecoinError {
+  constructor() { super('Role already exists'); }
+}
+
+export class RoleNotFoundError extends StablecoinError {
+  constructor() { super('Role not found'); }
+}
+
+export class NameTooLongError extends StablecoinError {
+  constructor() { super('Name too long (max 32 chars)'); }
+}
+
+export class SymbolTooLongError extends StablecoinError {
+  constructor() { super('Symbol too long (max 10 chars)'); }
+}
+
+export class UriTooLongError extends StablecoinError {
+  constructor() { super('URI too long (max 200 chars)'); }
+}
+
+export class InvalidDecimalsError extends StablecoinError {
+  constructor() { super('Invalid decimals - must be <= 9'); }
+}
+
+export class ReasonTooLongError extends StablecoinError {
+  constructor() { super('Reason too long (max 200 chars)'); }
+}

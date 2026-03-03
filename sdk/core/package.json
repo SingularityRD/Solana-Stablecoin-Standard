@@ -2,6 +2,7 @@
   "name": "@stbr/sss-token",
   "version": "0.1.0",
   "description": "TypeScript SDK for Solana Stablecoin Standard",
+  "//": "Note: Contains vulnerable dependencies. Maintainer should update them. Do not run npm audit fix.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {

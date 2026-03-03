@@ -24,9 +24,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-sss_db}
       # Performance tuning
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=C"
-      # Logging
-      POSTGRES_LOG_STATEMENT: "none"
-      POSTGRES_LOG_MIN_DURATION_STATEMENT: "1000"
+    command: ["postgres", "-c", "log_statement=none", "-c", "log_min_duration_statement=1000"]
     
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
@@ -214,13 +212,15 @@ services:
     volumes:
       - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./docker/nginx/ssl:/etc/nginx/ssl:ro
+      - ./docker/certbot/conf:/etc/letsencrypt:ro
+      - ./docker/certbot/www:/var/www/certbot:ro
       - nginx_cache:/var/cache/nginx
     
     depends_on:
       - backend
     
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -244,6 +244,48 @@ services:
       driver: "json-file"
       options:
         max-size: "10m"
+        max-file: "3"
+    
+    profiles:
+      - production
+
+  # =============================================================================
+  # Certbot (Let's Encrypt SSL Certificate Manager)
+  # =============================================================================
+  certbot:
+    image: certbot/certbot:latest
+    container_name: sss-certbot
+    restart: unless-stopped
+    
+    volumes:
+      - ./docker/certbot/conf:/etc/letsencrypt
+      - ./docker/certbot/www:/var/www/certbot
+    
+    # Renew certificates every 12 hours (certbot only renews if within 30 days of expiry)
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    
+    depends_on:
+      - nginx
+    
+    networks:
+      - sss-network
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+        reservations:
+          cpus: '0.1'
+          memory: 32M
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
         max-file: "3"
     
     profiles:

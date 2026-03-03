@@ -1,7 +1,10 @@
 import { PublicKey } from '@solana/web3.js';
 
-const PROGRAM_ID = new PublicKey('SSSToken11111111111111111111111111111111111');
+let PROGRAM_ID = new PublicKey('SSSToken11111111111111111111111111111111111');
 
+export function setProgramId(id: PublicKey) {
+  PROGRAM_ID = id;
+}
 export function findStablecoinPda(assetMint: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([Buffer.from('stablecoin'), assetMint.toBuffer()], PROGRAM_ID);
 }

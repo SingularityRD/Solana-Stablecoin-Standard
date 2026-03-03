@@ -493,15 +493,16 @@ jobs:
             type=sha,prefix=
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
-      - name: Build and push Frontend image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./example-frontend
-          push: true
-          tags: ${{ steps.meta-frontend.outputs.tags }}
-          labels: ${{ steps.meta-frontend.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      # TODO: Frontend Dockerfile is missing in ./example-frontend, commenting out build for now.
+      # - name: Build and push Frontend image
+      #   uses: docker/build-push-action@v5
+      #   with:
+      #     context: ./example-frontend
+      #     push: true
+      #     tags: ${{ steps.meta-frontend.outputs.tags }}
+      #     labels: ${{ steps.meta-frontend.outputs.labels }}
+      #     cache-from: type=gha
+      #     cache-to: type=gha,mode=max
 
   deploy-programs:
     name: Deploy Solana Programs
@@ -531,16 +532,21 @@ jobs:
 
       - name: Deploy SSS Token Program
         if: ${{ secrets.DEPLOY_KEYPAIR != '' }}
-        run: |
-          echo "${{ secrets.DEPLOY_KEYPAIR }}" > ~/.config/solana/deploy-keypair.json
-          solana program deploy target/deploy/sss_token.so --keypair ~/.config/solana/deploy-keypair.json
         env:
           DEPLOY_KEYPAIR: ${{ secrets.DEPLOY_KEYPAIR }}
+        run: |
+          printf "%s" "$DEPLOY_KEYPAIR" > /tmp/deploy-keypair.json
+          # SECURITY: Buffer-only deploy. Use multisig (e.g., Squads) to finalize upgrade.
+          solana program write-buffer target/deploy/sss_token.so --keypair /tmp/deploy-keypair.json
 
       - name: Deploy Oracle Module
         if: ${{ secrets.DEPLOY_KEYPAIR != '' }}
+        env:
+          DEPLOY_KEYPAIR: ${{ secrets.DEPLOY_KEYPAIR }}
         run: |
-          solana program deploy target/deploy/oracle_module.so --keypair ~/.config/solana/deploy-keypair.json
+          printf "%s" "$DEPLOY_KEYPAIR" > /tmp/deploy-keypair.json
+          # SECURITY: Buffer-only deploy. Use multisig (e.g., Squads) to finalize upgrade.
+          solana program write-buffer target/deploy/oracle_module.so --keypair /tmp/deploy-keypair.json
 
   # ============================================================================
   # NOTIFICATION JOBS

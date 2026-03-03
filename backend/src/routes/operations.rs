@@ -57,11 +57,31 @@ pub async fn mint(
     // Parse stablecoin PDA
     let stablecoin_pda: Pubkey = stablecoin.stablecoin_pda.parse()
         .map_err(|_| ApiError::Internal("Invalid stablecoin PDA".to_string()))?;
+        
+    let asset_mint: Pubkey = stablecoin.asset_mint.parse()
+        .map_err(|_| ApiError::Internal("Invalid asset mint".to_string()))?;
+
+    let authority_pubkey: Pubkey = stablecoin.authority_pubkey.parse()
+        .map_err(|_| ApiError::Internal("Invalid authority pubkey".to_string()))?;
+
+    // Build mint instruction
+    let instruction = state.solana.build_mint_instruction(
+        &stablecoin_pda,
+        &asset_mint,
+        &authority_pubkey,
+        &recipient,
+        req.amount,
+        0, // bump
+        None, // role assignment PDA
+        None, // minter info PDA
+    );
     
-    // Build mint transaction
-    // In production, this would use Anchor client to build and send the transaction
-    let tx_signature = format!("mint_{}_{}_{}", id, recipient, req.amount);
-    
+    // Send real transaction
+    let tx_signature = state.solana.build_and_send_instruction(vec![instruction], &[])
+        .await
+        .map_err(|e| ApiError::Internal(format!("Failed to mint: {}", e)))?
+        .to_string();
+
     // Log audit
     let _ = state.db.log_audit(
         Some(id),
@@ -92,9 +112,37 @@ pub async fn burn(
     // Get stablecoin
     let _stablecoin = get_stablecoin(&state, id).await?;
     
-    // Build burn transaction
-    let tx_signature = format!("burn_{}_{}", id, req.amount);
+    // Parse pubkeys
+    let stablecoin_pda: Pubkey = _stablecoin.stablecoin_pda.parse()
+        .map_err(|_| ApiError::Internal("Invalid stablecoin PDA".to_string()))?;
+        
+    let asset_mint: Pubkey = _stablecoin.asset_mint.parse()
+        .map_err(|_| ApiError::Internal("Invalid asset mint".to_string()))?;
+
+    let authority_pubkey: Pubkey = _stablecoin.authority_pubkey.parse()
+        .map_err(|_| ApiError::Internal("Invalid authority pubkey".to_string()))?;
+
+    let from_account = match &req.from_account {
+        Some(acc) => acc.parse().map_err(|_| ApiError::Validation("Invalid from_account pubkey".to_string()))?,
+        None => authority_pubkey, // Default to authority if not provided
+    };
+
+    // Build burn instruction
+    let instruction = state.solana.build_burn_instruction(
+        &stablecoin_pda,
+        &asset_mint,
+        &authority_pubkey,
+        &from_account,
+        req.amount,
+        None, // role assignment PDA
+    );
     
+    // Send real transaction
+    let tx_signature = state.solana.build_and_send_instruction(vec![instruction], &[])
+        .await
+        .map_err(|e| ApiError::Internal(format!("Failed to burn: {}", e)))?
+        .to_string();
+
     // Log audit
     let _ = state.db.log_audit(
         Some(id),
@@ -131,7 +179,8 @@ pub async fn transfer(
     // Get stablecoin
     let _stablecoin = get_stablecoin(&state, id).await?;
     
-    // Build transfer transaction
+    // TODO: SolanaService needs a build_transfer_instruction method
+    // For now, we mock the transaction signature
     let tx_signature = format!("transfer_{}_{}_{}", id, &req.from[..8], &req.to[..8]);
     
     // Log audit

@@ -40,7 +40,7 @@ services:
       --maxmemory 512mb
       --maxmemory-policy allkeys-lru
       --save 60 1000
-      --requirepass ${REDIS_PASSWORD}
+      ${REDIS_PASSWORD:+--requirepass ${REDIS_PASSWORD}}
     
     # Do not expose Redis port externally in production
     ports: []
@@ -91,6 +91,11 @@ services:
   # Nginx - Enabled in Production
   nginx:
     profiles: []
+    volumes:
+      - ./docker/nginx/nginx-ssl.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/certbot/conf:/etc/letsencrypt:ro
+      - ./docker/certbot/www:/var/www/certbot:ro
+      - nginx_cache:/var/cache/nginx
     ports:
       - "${NGINX_HTTP_PORT:-80}:80"
       - "${NGINX_HTTPS_PORT:-443}:443"
@@ -102,6 +107,10 @@ services:
         reservations:
           cpus: '0.5'
           memory: 128M
+
+  # Certbot - Enabled in Production
+  certbot:
+    profiles: []
 
 volumes:
   postgres_backup:

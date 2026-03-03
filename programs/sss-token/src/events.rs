@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use crate::state::Role;
 
 #[event]
 pub struct StablecoinInitialized {
@@ -101,7 +102,7 @@ pub struct Seized {
 #[event]
 pub struct RoleAssigned {
     pub stablecoin: Pubkey,
-    pub role: String,
+    pub role: Role,
     pub account: Pubkey,
     pub assigned_by: Pubkey,
 }
@@ -109,6 +110,6 @@ pub struct RoleAssigned {
 #[event]
 pub struct RoleRevoked {
     pub stablecoin: Pubkey,
-    pub role: String,
+    pub role: Role,
     pub account: Pubkey,
 }

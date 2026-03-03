@@ -9,3 +9,4 @@ pub const PRESET_SSS_2: u8 = 2;
 pub const MAX_NAME_LENGTH: usize = 32;
 pub const MAX_SYMBOL_LENGTH: usize = 10;
 pub const MAX_URI_LENGTH: usize = 200;
+pub const MAX_REASON_LENGTH: usize = 200;

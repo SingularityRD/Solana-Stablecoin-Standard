@@ -4,7 +4,7 @@
 //! with full Solana blockchain integration.
 //!
 //! ## Features
-//! 
+//!
 //! - `solana` (default: disabled): Enable full Solana RPC integration
 //!   - Requires OpenSSL to be installed or vendored (needs Perl on Windows)
 //!   - Without this feature, the TUI runs in demo/mock mode
@@ -22,7 +22,7 @@ use crossterm::{
 };
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Paragraph, List, ListItem, Wrap},
+    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
 };
 use std::{
     io,
@@ -41,8 +41,6 @@ use {
     std::rc::Rc,
 };
 
-
-
 // ============================================================================
 // Constants
 // ============================================================================
@@ -58,6 +56,8 @@ const STABLECOIN_SEED: &[u8] = b"stablecoin";
 const MINTER_SEED: &[u8] = b"minter";
 #[allow(dead_code)]
 const BLACKLIST_SEED: &[u8] = b"blacklist";
+#[allow(dead_code)]
+const ROLE_SEED: &[u8] = b"role";
 
 /// Refresh interval for blockchain data (in milliseconds)
 #[allow(dead_code)]
@@ -82,7 +82,7 @@ impl MockPubkey {
         arr[31] = 0x01; // Valid base58 ending
         Self(arr)
     }
-    
+
     fn from_str(s: &str) -> Result<Self, ()> {
         // Simple mock - just accept any string
         let bytes = s.as_bytes();
@@ -113,12 +113,12 @@ struct StablecoinState {
     authority: Pubkey,
     #[cfg(not(feature = "solana"))]
     authority: MockPubkey,
-    
+
     #[cfg(feature = "solana")]
     asset_mint: Pubkey,
     #[cfg(not(feature = "solana"))]
     asset_mint: MockPubkey,
-    
+
     total_supply: u64,
     paused: bool,
     preset: u8,
@@ -134,7 +134,7 @@ struct MinterInfo {
     minter: Pubkey,
     #[cfg(not(feature = "solana"))]
     minter: MockPubkey,
-    
+
     quota: u64,
     minted_amount: u64,
     bump: u8,
@@ -148,14 +148,14 @@ struct BlacklistEntry {
     account: Pubkey,
     #[cfg(not(feature = "solana"))]
     account: MockPubkey,
-    
+
     reason: String,
-    
+
     #[cfg(feature = "solana")]
     blacklisted_by: Pubkey,
     #[cfg(not(feature = "solana"))]
     blacklisted_by: MockPubkey,
-    
+
     blacklisted_at: i64,
 }
 
@@ -207,32 +207,35 @@ struct App {
     input_mode: bool,
     input_buffer: String,
     status_message: Option<(String, Instant)>,
-    
+
     // Connection state
     connected: bool,
     connecting: bool,
     rpc_url: String,
-    
+
     #[cfg(feature = "solana")]
     authority: Option<Pubkey>,
     #[cfg(not(feature = "solana"))]
     authority: Option<MockPubkey>,
-    
+
+    #[cfg(feature = "solana")]
+    program: Option<Program<Rc<Keypair>>>,
+
     #[cfg(feature = "solana")]
     program_id: Pubkey,
     #[cfg(not(feature = "solana"))]
     program_id: MockPubkey,
-    
+
     #[cfg(feature = "solana")]
     stablecoin_pda: Option<Pubkey>,
     #[cfg(not(feature = "solana"))]
     stablecoin_pda: Option<MockPubkey>,
-    
+
     // Blockchain data
     stablecoin_state: Option<StablecoinState>,
     minters: Vec<MinterInfo>,
     blacklist: Vec<BlacklistEntry>,
-    
+
     // Stats
     last_refresh: Option<Instant>,
     refresh_count: u64,
@@ -254,9 +257,12 @@ impl Default for App {
             rpc_url: String::from("https://api.devnet.solana.com"),
             authority: None,
             #[cfg(feature = "solana")]
+            program: None,
+            #[cfg(feature = "solana")]
             program_id: Pubkey::try_from(PROGRAM_ID).unwrap_or_default(),
             #[cfg(not(feature = "solana"))]
-            program_id: MockPubkey::from_str("SSSToken11111111111111111111111111111111111").unwrap_or_default(),
+            program_id: MockPubkey::from_str("SSSToken11111111111111111111111111111111111")
+                .unwrap_or_default(),
             stablecoin_pda: None,
             stablecoin_state: None,
             minters: Vec::new(),
@@ -276,7 +282,7 @@ impl App {
             "---".to_string()
         }
     }
-    
+
     fn get_preset_name(&self) -> &'static str {
         if let Some(state) = &self.stablecoin_state {
             match state.preset {
@@ -288,11 +294,11 @@ impl App {
             "---"
         }
     }
-    
+
     fn set_status(&mut self, msg: impl Into<String>) {
         self.status_message = Some((msg.into(), Instant::now()));
     }
-    
+
     fn clear_expired_status(&mut self) {
         if let Some((_, time)) = self.status_message {
             if time.elapsed() > Duration::from_secs(5) {
@@ -321,14 +327,14 @@ fn format_number(n: u64) -> String {
 #[cfg(feature = "solana")]
 fn shorten_pubkey(pubkey: &Pubkey) -> String {
     let s = pubkey.to_string();
-    format!("{}...{}", &s[..4], &s[s.len()-4..])
+    format!("{}...{}", &s[..4], &s[s.len() - 4..])
 }
 
 #[cfg(not(feature = "solana"))]
 fn shorten_pubkey(pubkey: &MockPubkey) -> String {
     let s = pubkey.to_string();
     if s.len() > 8 {
-        format!("{}...{}", &s[..4], &s[s.len()-4..])
+        format!("{}...{}", &s[..4], &s[s.len() - 4..])
     } else {
         s
     }
@@ -337,7 +343,10 @@ fn shorten_pubkey(pubkey: &MockPubkey) -> String {
 #[cfg(feature = "solana")]
 fn expand_tilde(path: &str) -> String {
     if path.starts_with('~') {
-        if let Some(home) = std::env::var("HOME").ok().or_else(|| std::env::var("USERPROFILE").ok()) {
+        if let Some(home) = std::env::var("HOME")
+            .ok()
+            .or_else(|| std::env::var("USERPROFILE").ok())
+        {
             return path.replacen('~', &home, 1);
         }
     }
@@ -345,9 +354,9 @@ fn expand_tilde(path: &str) -> String {
 }
 
 #[cfg(feature = "solana")]
-fn derive_stablecoin_pda(authority: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
+fn derive_stablecoin_pda(asset_mint: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(
-        &[STABLECOIN_SEED, authority.to_bytes().as_ref()],
+        &[STABLECOIN_SEED, asset_mint.to_bytes().as_ref()],
         program_id,
     )
 }
@@ -355,15 +364,27 @@ fn derive_stablecoin_pda(authority: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8
 #[cfg(feature = "solana")]
 fn derive_minter_pda(stablecoin: &Pubkey, minter: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(
-        &[MINTER_SEED, stablecoin.to_bytes().as_ref(), minter.to_bytes().as_ref()],
+        &[
+            MINTER_SEED,
+            stablecoin.to_bytes().as_ref(),
+            minter.to_bytes().as_ref(),
+        ],
         program_id,
     )
 }
 
 #[cfg(feature = "solana")]
-fn derive_blacklist_pda(stablecoin: &Pubkey, account: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
+fn derive_blacklist_pda(
+    stablecoin: &Pubkey,
+    account: &Pubkey,
+    program_id: &Pubkey,
+) -> (Pubkey, u8) {
     Pubkey::find_program_address(
-        &[BLACKLIST_SEED, stablecoin.to_bytes().as_ref(), account.to_bytes().as_ref()],
+        &[
+            BLACKLIST_SEED,
+            stablecoin.to_bytes().as_ref(),
+            account.to_bytes().as_ref(),
+        ],
         program_id,
     )
 }
@@ -381,19 +402,19 @@ fn setup_solana_client(
     let expanded_path = expand_tilde(keypair_path);
     let keypair = read_keypair_file(&expanded_path)
         .map_err(|e| anyhow::anyhow!("Failed to read keypair from {}: {}", expanded_path, e))?;
-    
+
     let authority = keypair.pubkey();
-    
+
     let client = Client::new_with_options(
         Cluster::Custom(rpc_url.to_string(), rpc_url.to_string()),
         Rc::new(keypair),
         CommitmentConfig::confirmed(),
     );
-    
+
     let program = client
         .program(program_id)
         .map_err(|e| anyhow::anyhow!("Failed to create program client: {}", e))?;
-    
+
     Ok((program, authority))
 }
 
@@ -406,15 +427,15 @@ fn ui(f: &mut Frame, app: &App) {
         .direction(Direction::Vertical)
         .margin(1)
         .constraints([
-            Constraint::Length(3),  // Header
-            Constraint::Min(10),    // Main content
-            Constraint::Length(3),  // Status bar
+            Constraint::Length(3), // Header
+            Constraint::Min(10),   // Main content
+            Constraint::Length(3), // Status bar
         ])
         .split(f.area());
 
     // Header
     render_header(f, app, chunks[0]);
-    
+
     // Main content based on current view
     match app.current_view {
         View::Dashboard => render_dashboard(f, app, chunks[1]),
@@ -424,7 +445,7 @@ fn ui(f: &mut Frame, app: &App) {
         View::Actions => render_actions(f, app, chunks[1]),
         View::Help => render_help(f, app, chunks[1]),
     }
-    
+
     // Status bar
     render_status_bar(f, app, chunks[2]);
 }
@@ -435,25 +456,35 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
     } else {
         "Demo"
     };
-    
+
     let title = if app.connected {
         format!("SSS Token Admin [{}] - Connected to {}", mode, app.rpc_url)
     } else if app.connecting {
-        format!("SSS Token Admin [{}] - Connecting to {}...", mode, app.rpc_url)
+        format!(
+            "SSS Token Admin [{}] - Connecting to {}...",
+            mode, app.rpc_url
+        )
     } else {
-        format!("SSS Token Admin [{}] - Not Connected (Press 'c' to connect)", mode)
+        format!(
+            "SSS Token Admin [{}] - Not Connected (Press 'c' to connect)",
+            mode
+        )
     };
-    
+
     let header = Paragraph::new(title)
-        .style(Style::default().fg(if app.connected { 
-            Color::Green 
-        } else if app.connecting { 
-            Color::Yellow 
-        } else { 
-            Color::Red 
+        .style(Style::default().fg(if app.connected {
+            Color::Green
+        } else if app.connecting {
+            Color::Yellow
+        } else {
+            Color::Red
         }))
-        .block(Block::default().borders(Borders::ALL).title("SSS Admin TUI"));
-    
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("SSS Admin TUI"),
+        );
+
     f.render_widget(header, area);
 }
 
@@ -461,12 +492,12 @@ fn render_dashboard(f: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(7),  // Stats
-            Constraint::Length(5),  // Connection info
-            Constraint::Min(0),     // Controls
+            Constraint::Length(7), // Stats
+            Constraint::Length(5), // Connection info
+            Constraint::Min(0),    // Controls
         ])
         .split(area);
-    
+
     // Stats panel
     let stats_text = if let Some(state) = &app.stablecoin_state {
         format!(
@@ -478,36 +509,52 @@ fn render_dashboard(f: &mut Frame, app: &App, area: Rect) {
             app.format_supply(),
             app.get_preset_name(),
             if state.paused { "YES" } else { "NO" },
-            if state.compliance_enabled { "ENABLED" } else { "DISABLED" },
+            if state.compliance_enabled {
+                "ENABLED"
+            } else {
+                "DISABLED"
+            },
             shorten_pubkey(&state.authority)
         )
     } else {
         "No stablecoin initialized for this authority.\n\
-         Use 'Actions' menu to initialize a new stablecoin.".to_string()
+         Use 'Actions' menu to initialize a new stablecoin."
+            .to_string()
     };
-    
-    let stats = Paragraph::new(stats_text)
-        .block(Block::default().borders(Borders::ALL).title("Stablecoin Status"));
+
+    let stats = Paragraph::new(stats_text).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Stablecoin Status"),
+    );
     f.render_widget(stats, chunks[0]);
-    
+
     // Connection info
     let conn_text = format!(
         "Authority: {}\n\
          Stablecoin PDA: {}\n\
          Program ID: {}",
-        app.authority.map(|a| shorten_pubkey(&a)).unwrap_or_else(|| "Not set".to_string()),
-        app.stablecoin_pda.map(|p| shorten_pubkey(&p)).unwrap_or_else(|| "Not derived".to_string()),
+        app.authority
+            .map(|a| shorten_pubkey(&a))
+            .unwrap_or_else(|| "Not set".to_string()),
+        app.stablecoin_pda
+            .map(|p| shorten_pubkey(&p))
+            .unwrap_or_else(|| "Not derived".to_string()),
         shorten_pubkey(&app.program_id)
     );
-    
-    let conn_info = Paragraph::new(conn_text)
-        .block(Block::default().borders(Borders::ALL).title("Connection Info"));
+
+    let conn_info = Paragraph::new(conn_text).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Connection Info"),
+    );
     f.render_widget(conn_info, chunks[1]);
-    
+
     // Controls help
     let controls = Paragraph::new(
-        "[1] Dashboard  [2] Minters  [3] Blacklist  [4] Roles  [5] Actions  [?] Help  [q] Quit"
-    ).block(Block::default().borders(Borders::ALL).title("Controls"));
+        "[1] Dashboard  [2] Minters  [3] Blacklist  [4] Roles  [5] Actions  [?] Help  [q] Quit",
+    )
+    .block(Block::default().borders(Borders::ALL).title("Controls"));
     f.render_widget(controls, chunks[2]);
 }
 
@@ -515,21 +562,28 @@ fn render_minters(f: &mut Frame, app: &App, area: Rect) {
     let items: Vec<ListItem> = if app.minters.is_empty() {
         vec![ListItem::new("No minters registered")]
     } else {
-        app.minters.iter().map(|m| {
-            ListItem::new(format!(
-                "{}: Quota {} | Minted {} | Available {}",
-                shorten_pubkey(&m.minter),
-                format_number(m.quota),
-                format_number(m.minted_amount),
-                format_number(m.quota.saturating_sub(m.minted_amount))
-            ))
-        }).collect()
+        app.minters
+            .iter()
+            .map(|m| {
+                ListItem::new(format!(
+                    "{}: Quota {} | Minted {} | Available {}",
+                    shorten_pubkey(&m.minter),
+                    format_number(m.quota),
+                    format_number(m.minted_amount),
+                    format_number(m.quota.saturating_sub(m.minted_amount))
+                ))
+            })
+            .collect()
     };
-    
+
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(format!("Minters ({})", app.minters.len())))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(format!("Minters ({})", app.minters.len())),
+        )
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
-    
+
     f.render_widget(list, area);
 }
 
@@ -537,23 +591,30 @@ fn render_blacklist(f: &mut Frame, app: &App, area: Rect) {
     let items: Vec<ListItem> = if app.blacklist.is_empty() {
         vec![ListItem::new("No accounts blacklisted")]
     } else {
-        app.blacklist.iter().map(|b| {
-            ListItem::new(format!(
-                "{}: {} (by {} at {})",
-                shorten_pubkey(&b.account),
-                b.reason,
-                shorten_pubkey(&b.blacklisted_by),
-                chrono::DateTime::from_timestamp(b.blacklisted_at, 0)
-                    .map(|t| t.format("%Y-%m-%d %H:%M").to_string())
-                    .unwrap_or_else(|| "?".to_string())
-            ))
-        }).collect()
+        app.blacklist
+            .iter()
+            .map(|b| {
+                ListItem::new(format!(
+                    "{}: {} (by {} at {})",
+                    shorten_pubkey(&b.account),
+                    b.reason,
+                    shorten_pubkey(&b.blacklisted_by),
+                    chrono::DateTime::from_timestamp(b.blacklisted_at, 0)
+                        .map(|t| t.format("%Y-%m-%d %H:%M").to_string())
+                        .unwrap_or_else(|| "?".to_string())
+                ))
+            })
+            .collect()
     };
-    
+
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(format!("Blacklist ({})", app.blacklist.len())))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(format!("Blacklist ({})", app.blacklist.len())),
+        )
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
-    
+
     f.render_widget(list, area);
 }
 
@@ -568,9 +629,12 @@ fn render_roles(f: &mut Frame, _app: &App, area: Rect) {
         * Seizer     - Can seize tokens from blacklisted accounts\n\
         \n\
         Use the Actions menu to assign or revoke roles.";
-    
-    let roles = Paragraph::new(roles_text)
-        .block(Block::default().borders(Borders::ALL).title("Role Management"));
+
+    let roles = Paragraph::new(roles_text).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Role Management"),
+    );
     f.render_widget(roles, area);
 }
 
@@ -589,13 +653,17 @@ fn render_actions(f: &mut Frame, _app: &App, area: Rect) {
         "[r] Revoke role",
         "[s] Seize tokens",
     ];
-    
+
     let items: Vec<ListItem> = actions.iter().map(|a| ListItem::new(*a)).collect();
-    
+
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title("Actions (Select and press Enter)"))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Actions (Select and press Enter)"),
+        )
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
-    
+
     f.render_widget(list, area);
 }
 
@@ -605,7 +673,7 @@ fn render_help(f: &mut Frame, _app: &App, area: Rect) {
     } else {
         "Running in DEMO mode (compile with --features solana for live mode).\n\n"
     };
-    
+
     let help_text = format!(
         "{}SSS Token Admin TUI - Help\n\
         \n\
@@ -630,7 +698,7 @@ fn render_help(f: &mut Frame, _app: &App, area: Rect) {
         Press 'q' to quit the application.",
         mode_info
     );
-    
+
     let help = Paragraph::new(help_text)
         .block(Block::default().borders(Borders::ALL).title("Help"))
         .wrap(Wrap { trim: true });
@@ -651,11 +719,11 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     } else {
         "Not connected - Press 'c' to connect".to_string()
     };
-    
+
     let status = Paragraph::new(status_text)
         .style(Style::default().fg(Color::Cyan))
         .block(Block::default().borders(Borders::ALL));
-    
+
     f.render_widget(status, area);
 }
 
@@ -686,7 +754,7 @@ fn handle_input(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> Result<
         }
         return Ok(());
     }
-    
+
     // Global keybindings
     match key {
         KeyCode::Char('q') if modifiers == KeyModifiers::NONE => {
@@ -717,29 +785,57 @@ fn handle_input(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> Result<
         }
         _ => {}
     }
-    
+
     // View-specific keybindings
     match app.current_view {
-        View::Actions => {
-            match key {
-                KeyCode::Char('i') => app.set_status("Initialize: Enter stablecoin name"),
-                KeyCode::Char('m') => app.set_status("Mint: Enter recipient address"),
-                KeyCode::Char('b') => app.set_status("Burn: Enter amount"),
-                KeyCode::Char('p') => app.set_status("Pause operation requested"),
-                KeyCode::Char('u') => app.set_status("Unpause operation requested"),
-                KeyCode::Char('+') => app.set_status("Add minter: Enter address"),
-                KeyCode::Char('-') => app.set_status("Remove minter: Enter address"),
-                KeyCode::Char('B') => app.set_status("Add to blacklist: Enter address"),
-                KeyCode::Char('R') => app.set_status("Remove from blacklist: Enter address"),
-                KeyCode::Char('a') => app.set_status("Assign role: Enter address"),
-                KeyCode::Char('r') => app.set_status("Revoke role: Enter address"),
-                KeyCode::Char('s') => app.set_status("Seize: Enter address"),
-                _ => {}
+        View::Actions => match key {
+            KeyCode::Char('i') => {
+                app.set_status("Initialize: Enter stablecoin name");
+                app.input_mode = true;
             }
-        }
+            KeyCode::Char('m') => {
+                app.set_status("Mint: Enter recipient address");
+                app.input_mode = true;
+            }
+            KeyCode::Char('b') => {
+                app.set_status("Burn: Enter amount");
+                app.input_mode = true;
+            }
+            KeyCode::Char('p') => app.set_status("Pause operation requested"),
+            KeyCode::Char('u') => app.set_status("Unpause operation requested"),
+            KeyCode::Char('+') => {
+                app.set_status("Add minter: Enter address");
+                app.input_mode = true;
+            }
+            KeyCode::Char('-') => {
+                app.set_status("Remove minter: Enter address");
+                app.input_mode = true;
+            }
+            KeyCode::Char('B') => {
+                app.set_status("Add to blacklist: Enter address");
+                app.input_mode = true;
+            }
+            KeyCode::Char('R') => {
+                app.set_status("Remove from blacklist: Enter address");
+                app.input_mode = true;
+            }
+            KeyCode::Char('a') => {
+                app.set_status("Assign role: Enter address");
+                app.input_mode = true;
+            }
+            KeyCode::Char('r') => {
+                app.set_status("Revoke role: Enter address");
+                app.input_mode = true;
+            }
+            KeyCode::Char('s') => {
+                app.set_status("Seize: Enter address");
+                app.input_mode = true;
+            }
+            _ => {}
+        },
         _ => {}
     }
-    
+
     Ok(())
 }
 
@@ -754,54 +850,72 @@ fn main() -> Result<()> {
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-    
+
+    let result = run_app(&mut terminal);
+
+    // Cleanup terminal
+    disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
+    terminal.show_cursor()?;
+
+    println!("SSS Admin TUI closed. Goodbye!");
+    result
+}
+
+fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
     // Create app state
     let mut app = App::default();
-    
+
     // Get configuration from environment
     if let Ok(rpc_url) = std::env::var("SSS_RPC_URL") {
         app.rpc_url = rpc_url;
     }
-    
+
     // Main event loop
     loop {
         // Draw UI
         terminal.draw(|f| ui(f, &app))?;
-        
+
         // Handle events
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 handle_input(key.code, key.modifiers, &mut app)?;
             }
         }
-        
+
         // Clear expired status messages
         app.clear_expired_status();
-        
+
         // Check if we should quit
         if app.should_quit {
             break;
         }
-        
+
         // Handle connection
         if app.connecting && !app.connected {
             #[cfg(feature = "solana")]
             {
                 let keypair_path = std::env::var("SSS_KEYPAIR_PATH")
                     .unwrap_or_else(|_| "~/.config/solana/id.json".to_string());
-                
+
                 match setup_solana_client(&app.rpc_url, &keypair_path, app.program_id) {
-                    Ok((_program, authority)) => {
+                    Ok((program, authority)) => {
                         app.connected = true;
                         app.connecting = false;
                         app.authority = Some(authority);
-                        
-                        let (stablecoin_pda, _) = derive_stablecoin_pda(&authority, &app.program_id);
-                        app.stablecoin_pda = Some(stablecoin_pda);
-                        
+                        app.program = Some(program);
+                        app.stablecoin_pda = None;
+
                         app.last_refresh = Some(Instant::now());
                         app.refresh_count = 1;
-                        app.set_status(format!("Connected as {}", shorten_pubkey(&authority)));
+                        app.set_status(format!(
+                            "Connected as {}. Set stablecoin address via Actions.",
+                            shorten_pubkey(&authority)
+                        ));
                     }
                     Err(e) => {
                         app.connecting = false;
@@ -810,7 +924,7 @@ fn main() -> Result<()> {
                     }
                 }
             }
-            
+
             #[cfg(not(feature = "solana"))]
             {
                 // Demo mode - simulate connection
@@ -818,7 +932,7 @@ fn main() -> Result<()> {
                 app.connecting = false;
                 app.authority = Some(MockPubkey::new_unique());
                 app.stablecoin_pda = Some(MockPubkey::new_unique());
-                
+
                 // Demo data
                 app.stablecoin_state = Some(StablecoinState {
                     authority: app.authority.unwrap(),
@@ -829,32 +943,20 @@ fn main() -> Result<()> {
                     compliance_enabled: true,
                     bump: 254,
                 });
-                
-                app.minters = vec![
-                    MinterInfo {
-                        minter: MockPubkey::new_unique(),
-                        quota: 10_000_000,
-                        minted_amount: 2_500_000,
-                        bump: 253,
-                    },
-                ];
-                
+
+                app.minters = vec![MinterInfo {
+                    minter: MockPubkey::new_unique(),
+                    quota: 10_000_000,
+                    minted_amount: 2_500_000,
+                    bump: 253,
+                }];
+
                 app.last_refresh = Some(Instant::now());
                 app.refresh_count = 1;
                 app.set_status("Connected (Demo Mode)".to_string());
             }
         }
     }
-    
-    // Cleanup terminal
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
-    
-    println!("SSS Admin TUI closed. Goodbye!");
+
     Ok(())
 }

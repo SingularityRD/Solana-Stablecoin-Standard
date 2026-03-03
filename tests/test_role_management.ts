@@ -3,6 +3,9 @@ import { Program } from "@coral-xyz/anchor";
 import { SssToken } from "../target/types/sss_token";
 import { expect } from "chai";
 
+const TOKEN_2022_PROGRAM_ID = new anchor.web3.PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+void TOKEN_2022_PROGRAM_ID;
+
 describe("Role Management", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
@@ -11,13 +14,15 @@ describe("Role Management", () => {
   const authority = provider.wallet;
 
   let stablecoinPda: anchor.web3.PublicKey;
+  let assetMint: anchor.web3.Keypair;
   let minter: anchor.web3.Keypair;
   let burner: anchor.web3.Keypair;
   let pauser: anchor.web3.Keypair;
 
   before(async () => {
+    assetMint = anchor.web3.Keypair.generate();
     const [pda] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("stablecoin"), authority.publicKey.toBuffer()],
+      [Buffer.from("stablecoin"), assetMint.publicKey.toBuffer()],
       program.programId
     );
     stablecoinPda = pda;
@@ -32,7 +37,7 @@ describe("Role Management", () => {
       .accounts({
         authority: authority.publicKey,
         state: stablecoinPda,
-        assetMint: anchor.web3.PublicKey.default,
+        assetMint: assetMint.publicKey,
         systemProgram: anchor.web3.SystemProgram.programId,
       })
       .rpc();

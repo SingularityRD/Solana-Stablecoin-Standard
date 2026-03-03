@@ -19,6 +19,9 @@ use crate::AppState;
 /// CSRF token header name
 pub const CSRF_HEADER: &str = "x-csrf-token";
 
+/// CSRF token time-to-live in seconds (24 hours)
+pub const CSRF_TOKEN_TTL_SECS: i64 = 86400;
+
 /// Safe methods that don't require CSRF protection
 const SAFE_METHODS: [Method; 3] = [Method::GET, Method::HEAD, Method::OPTIONS];
 
@@ -130,7 +133,7 @@ fn is_origin_allowed(origin: &str, allowed_origins: &[String]) -> bool {
             let domain = &allowed[2..];
             if let Ok(origin_url) = url::Url::parse(origin) {
                 if let Some(host) = origin_url.host_str() {
-                    return host.ends_with(domain) || host == domain;
+                    return host == domain || host.ends_with(&format!(".{}", domain));
                 }
             }
         }
@@ -174,11 +177,21 @@ fn validate_token_structure(token: &str, secret: &str) -> bool {
         return false;
     }
     
-    let timestamp = parts[0];
+    let timestamp_str = parts[0];
     let provided_hash = parts[1];
     
+    // Check expiration
+    if let Ok(timestamp) = timestamp_str.parse::<i64>() {
+        let now = chrono::Utc::now().timestamp();
+        if now - timestamp > CSRF_TOKEN_TTL_SECS {
+            return false;
+        }
+    } else {
+        return false;
+    }
+    
     // Verify hash
-    let expected_hash = generate_hash(timestamp, secret);
+    let expected_hash = generate_hash(timestamp_str, secret);
     
     // Constant-time comparison to prevent timing attacks
     constant_time_eq(&expected_hash, provided_hash)

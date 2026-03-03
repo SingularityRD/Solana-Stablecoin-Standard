@@ -1,4 +1,4 @@
-use crate::constants::BLACKLIST_SEED;
+use crate::constants::{BLACKLIST_SEED, MAX_REASON_LENGTH, ROLE_SEED};
 use crate::error::StablecoinError;
 use crate::events::*;
 use crate::state::*;
@@ -9,11 +9,14 @@ pub struct Blacklist<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 
-    #[account(
-        mut,
-        has_one = authority @ StablecoinError::Unauthorized
-    )]
+    #[account(mut)]
     pub state: Account<'info, StablecoinState>,
+
+    #[account(
+        seeds = [ROLE_SEED, state.key().as_ref(), authority.key().as_ref()],
+        bump,
+    )]
+    pub role_assignment: Option<Account<'info, RoleAssignment>>,
 
     #[account(
         init_if_needed,
@@ -36,6 +39,21 @@ pub fn add(ctx: Context<Blacklist>, reason: String) -> Result<()> {
         StablecoinError::ComplianceNotEnabled
     );
 
+    // RBAC Check: Must be Master or have Blacklister role
+    let is_master = ctx.accounts.authority.key() == ctx.accounts.state.authority;
+    let is_blacklister = if let Some(assignment) = &ctx.accounts.role_assignment {
+        assignment.role == Role::Blacklister || assignment.role == Role::Master
+    } else {
+        false
+    };
+    require!(is_master || is_blacklister, StablecoinError::Unauthorized);
+
+    // Validate reason length
+    require!(
+        reason.len() <= MAX_REASON_LENGTH,
+        StablecoinError::ReasonTooLong
+    );
+
     let entry = &mut ctx.accounts.entry;
     entry.account = ctx.accounts.account.key();
     entry.reason = reason.clone();
@@ -56,6 +74,15 @@ pub fn remove(ctx: Context<Blacklist>) -> Result<()> {
         ctx.accounts.state.compliance_enabled,
         StablecoinError::ComplianceNotEnabled
     );
+
+    // RBAC Check: Must be Master or have Blacklister role
+    let is_master = ctx.accounts.authority.key() == ctx.accounts.state.authority;
+    let is_blacklister = if let Some(assignment) = &ctx.accounts.role_assignment {
+        assignment.role == Role::Blacklister || assignment.role == Role::Master
+    } else {
+        false
+    };
+    require!(is_master || is_blacklister, StablecoinError::Unauthorized);
 
     let account_key = ctx.accounts.entry.account;
     ctx.accounts

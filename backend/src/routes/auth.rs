@@ -35,9 +35,11 @@ pub async fn register(
     })?;
     
     // Check if user already exists
+    let email_lower = req.email.to_lowercase();
     let existing: Option<User> = query_as(
         "SELECT * FROM users WHERE email = $1"
     )
+    .bind(&email_lower)
     .bind(&req.email)
     .fetch_optional(state.db.pool())
     .await
@@ -59,7 +61,7 @@ pub async fn register(
         RETURNING *
         "#
     )
-    .bind(&req.email)
+    .bind(&email_lower)
     .bind(&password_hash)
     .bind(&req.solana_pubkey)
     .fetch_one(state.db.pool())
@@ -116,10 +118,11 @@ pub async fn login(
     })?;
     
     // Find user
+    let email_lower = req.email.to_lowercase();
     let user: Option<User> = query_as(
         "SELECT * FROM users WHERE email = $1 AND is_active = true"
     )
-    .bind(&req.email)
+    .bind(&email_lower)
     .fetch_optional(state.db.pool())
     .await
     .map_err(|e| ApiError::Database(e.to_string()))?;

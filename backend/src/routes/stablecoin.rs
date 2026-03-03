@@ -64,10 +64,13 @@ pub async fn create(
         return Err(ApiError::Conflict("Stablecoin already exists for this asset".to_string()));
     }
     
-    // Generate authority keypair
-    let authority_keypair = solana_sdk::signature::Keypair::new();
+    // Use provided authority keypair or return error
+    let authority_keypair = match &req.authority_keypair {
+        Some(kp_str) => crate::solana::parse_keypair(kp_str)
+            .map_err(|e| ApiError::Validation(format!("Invalid authority keypair: {}", e)))?,
+        None => return Err(ApiError::Validation("authority_keypair is required".to_string())),
+    };
     let authority_pubkey = authority_keypair.pubkey().to_string();
-    
     // Create stablecoin in database
     let stablecoin: Stablecoin = query_as(
         r#"

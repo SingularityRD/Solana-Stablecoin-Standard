@@ -3,6 +3,7 @@ use crate::error::StablecoinError;
 use crate::events::*;
 use crate::state::*;
 use anchor_lang::prelude::*;
+use anchor_spl::token_interface::Mint as TokenMint;
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {
@@ -18,7 +19,8 @@ pub struct Initialize<'info> {
     )]
     pub state: Account<'info, StablecoinState>,
 
-    pub asset_mint: AccountInfo<'info>,
+    /// The SPL Token mint - must be a valid mint account
+    pub asset_mint: InterfaceAccount<'info, TokenMint>,
     pub system_program: Program<'info, System>,
 }
 

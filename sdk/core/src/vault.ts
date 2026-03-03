@@ -123,7 +123,7 @@ export class SolanaStablecoin {
    * @param amount - Amount to mint (in smallest units)
    * @param roleAssignment - Optional role assignment PDA for verification
    */
-  async mint(authority: Signer, recipient: PublicKey, amount: number, roleAssignment?: PublicKey): Promise<string> {
+  async mint(authority: Signer, recipient: PublicKey, amount: BN | number | string, minterInfo?: PublicKey, roleAssignment?: PublicKey): Promise<string> {
     // Using inline object for Anchor compatibility
     const accounts = {
       authority: authority.publicKey,
@@ -131,6 +131,7 @@ export class SolanaStablecoin {
       assetMint: this.assetMint,
       recipient,
       tokenProgram: TOKEN_2022_PROGRAM_ID,
+      ...(minterInfo && { minterInfo }),
       ...(roleAssignment && { roleAssignment }),
     };
 
@@ -147,7 +148,7 @@ export class SolanaStablecoin {
    * @param from - The token account to burn from
    * @param amount - Amount to burn (in smallest units)
    */
-  async burn(authority: Signer, from: PublicKey, amount: number): Promise<string> {
+  async burn(authority: Signer, from: PublicKey, amount: BN | number | string, roleAssignment?: PublicKey): Promise<string> {
     return this.program.methods
       .burn(new BN(amount))
       .accounts({
@@ -156,6 +157,7 @@ export class SolanaStablecoin {
         assetMint: this.assetMint,
         from,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
+        ...(roleAssignment && { roleAssignment }),
       })
       .signers([authority])
       .rpc();
@@ -189,7 +191,7 @@ export class SolanaStablecoin {
    * @param authority - The authority signer (must be Master or have thaw permissions)
    * @param account - The token account to thaw
    */
-  async thaw(authority: Signer, account: PublicKey): Promise<string> {
+  async thaw(authority: Signer, account: PublicKey, roleAssignment?: PublicKey): Promise<string> {
     return this.program.methods
       .thawAccount()
       .accounts({
@@ -198,6 +200,7 @@ export class SolanaStablecoin {
         assetMint: this.assetMint,
         account,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
+        ...(roleAssignment && { roleAssignment }),
       })
       .signers([authority])
       .rpc();
@@ -211,7 +214,7 @@ export class SolanaStablecoin {
    * @param amount - Amount to seize (in smallest units)
    * @param roleAssignment - Optional role assignment PDA for verification
    */
-  async seize(authority: Signer, from: PublicKey, to: PublicKey, amount: number, roleAssignment?: PublicKey): Promise<string> {
+  async seize(authority: Signer, from: PublicKey, to: PublicKey, amount: BN | number | string, roleAssignment?: PublicKey): Promise<string> {
     const accounts = {
       authority: authority.publicKey,
       state: this.stablecoinPda,
@@ -281,7 +284,7 @@ export class SolanaStablecoin {
    * @param minter - The public key of the minter to add
    * @param quota - The minting quota for this minter (in smallest units)
    */
-  async addMinter(authority: Signer, minter: PublicKey, quota: number): Promise<string> {
+  async addMinter(authority: Signer, minter: PublicKey, quota: BN | number | string): Promise<string> {
     const [minterInfoPda] = PublicKey.findProgramAddressSync(
       [Buffer.from('minter'), this.stablecoinPda.toBuffer(), minter.toBuffer()],
       this.program.programId
@@ -328,7 +331,7 @@ export class SolanaStablecoin {
    * @param minter - The public key of the minter to update
    * @param newQuota - The new minting quota (in smallest units)
    */
-  async setQuota(authority: Signer, minter: PublicKey, newQuota: number): Promise<string> {
+  async setQuota(authority: Signer, minter: PublicKey, newQuota: BN | number | string): Promise<string> {
     const [minterInfoPda] = PublicKey.findProgramAddressSync(
       [Buffer.from('minter'), this.stablecoinPda.toBuffer(), minter.toBuffer()],
       this.program.programId
@@ -358,8 +361,11 @@ export class SolanaStablecoin {
     try {
       const accountFetcher = this.program.account as Record<string, { fetch: (pubkey: PublicKey) => Promise<MinterInfoAccount> }>;
       return await accountFetcher['minterInfo'].fetch(minterInfoPda);
-    } catch {
-      return null;
+    } catch (error: any) {
+      if (error.message && error.message.includes("Account does not exist") || error.message.includes("AccountNotFound")) {
+        return null;
+      }
+      throw error;
     }
   }
 
@@ -368,17 +374,17 @@ export class SolanaStablecoin {
    */
   async getAllMinters(): Promise<{ publicKey: PublicKey; account: MinterInfoAccount }[]> {
     const accountFetcher = this.program.account as Record<string, { 
-      all(filters?: { memcmp?: { offset: number; bytes: string } }[]): Promise<{ publicKey: PublicKey; account: MinterInfoAccount }[]> 
+      all: (filters?: any[]) => Promise<{ publicKey: PublicKey; account: MinterInfoAccount }[]> 
     }>;
     
-    return accountFetcher['minterInfo'].all([
-      {
-        memcmp: {
-          offset: 8, // Skip discriminator
-          bytes: this.stablecoinPda.toBase58(),
-        },
-      },
-    ]);
+    const allMinters = await accountFetcher['minterInfo'].all();
+    return allMinters.filter(m => {
+      const [expectedPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from('minter'), this.stablecoinPda.toBuffer(), m.account.minter.toBuffer()],
+        this.program.programId
+      );
+      return expectedPda.equals(m.publicKey);
+    });
   }
 
   /**
@@ -398,7 +404,6 @@ export class SolanaStablecoin {
         authority: authority.publicKey,
         state: this.stablecoinPda,
         assignment: assignmentPda,
-        account: targetAccount,
       })
       .signers([authority])
       .rpc();
@@ -459,7 +464,7 @@ export class ComplianceModule {
    * @param account - The account to blacklist
    * @param reason - Reason for blacklisting
    */
-  async blacklistAdd(authority: Signer, account: PublicKey, reason: string): Promise<string> {
+  async blacklistAdd(authority: Signer, account: PublicKey, reason: string, roleAssignment?: PublicKey): Promise<string> {
     const [entryPda] = PublicKey.findProgramAddressSync(
       [Buffer.from('blacklist'), this.stablecoin.stablecoinPda.toBuffer(), account.toBuffer()],
       this.stablecoin.program.programId
@@ -473,6 +478,7 @@ export class ComplianceModule {
         entry: entryPda,
         account,
         systemProgram: SystemProgram.programId,
+        ...(roleAssignment && { roleAssignment }),
       })
       .signers([authority])
       .rpc();
@@ -483,7 +489,7 @@ export class ComplianceModule {
    * @param authority - The blacklister authority signer
    * @param account - The account to remove from blacklist
    */
-  async blacklistRemove(authority: Signer, account: PublicKey): Promise<string> {
+  async blacklistRemove(authority: Signer, account: PublicKey, roleAssignment?: PublicKey): Promise<string> {
     const [entryPda] = PublicKey.findProgramAddressSync(
       [Buffer.from('blacklist'), this.stablecoin.stablecoinPda.toBuffer(), account.toBuffer()],
       this.stablecoin.program.programId
@@ -496,6 +502,8 @@ export class ComplianceModule {
         state: this.stablecoin.stablecoinPda,
         entry: entryPda,
         account,
+        systemProgram: SystemProgram.programId,
+        ...(roleAssignment && { roleAssignment }),
       })
       .signers([authority])
       .rpc();

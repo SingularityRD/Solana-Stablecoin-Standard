@@ -48,6 +48,17 @@ pub async fn add(
     // Get stablecoin and check ownership
     let stablecoin = get_stablecoin_for_admin(&state, id, &user).await?;
     
+    // TODO: Execute corresponding on-chain instruction before/after DB update
+    // Validate input using validator crate
+    req.validate().map_err(validation_error_to_api_error)?;
+    
+    // Parse and validate minter pubkey (additional validation)
+    let minter_pubkey: Pubkey = req.account.parse()
+        .map_err(|_| ApiError::Validation("Invalid minter pubkey".to_string()))?;
+    
+    // Get stablecoin and check ownership
+    let stablecoin = get_stablecoin_for_admin(&state, id, &user).await?;
+    
     // Parse stablecoin PDA
     let stablecoin_pda: Pubkey = stablecoin.stablecoin_pda.parse()
         .map_err(|_| ApiError::Internal("Invalid stablecoin PDA".to_string()))?;
@@ -93,6 +104,10 @@ pub async fn remove(
     AuthUser(user): AuthUser,
     Path((id, account)): Path<(Uuid, String)>,
 ) -> ApiResult<impl IntoResponse> {
+    // Get stablecoin and check ownership
+    let _stablecoin = get_stablecoin_for_admin(&state, id, &user).await?;
+    
+    // TODO: Execute corresponding on-chain instruction before/after DB update
     // Get stablecoin and check ownership
     let _stablecoin = get_stablecoin_for_admin(&state, id, &user).await?;
     
@@ -151,6 +166,13 @@ pub async fn set_quota(
     Path((id, account)): Path<(Uuid, String)>,
     Json(req): Json<SetQuotaRequest>,
 ) -> ApiResult<impl IntoResponse> {
+    // Validate input using validator crate
+    req.validate().map_err(validation_error_to_api_error)?;
+    
+    // Get stablecoin and check ownership
+    let _stablecoin = get_stablecoin_for_admin(&state, id, &user).await?;
+    
+    // TODO: Execute corresponding on-chain instruction before/after DB update
     // Validate input using validator crate
     req.validate().map_err(validation_error_to_api_error)?;
     

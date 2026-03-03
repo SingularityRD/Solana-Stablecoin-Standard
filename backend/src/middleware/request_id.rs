@@ -27,8 +27,7 @@ pub async fn request_id_middleware(
     // Add request ID to response headers
     response.headers_mut().insert(
         "x-request-id",
-        header::HeaderValue::from_str(&request_id).unwrap(),
+        header::HeaderValue::from_str(&request_id).unwrap_or_else(|_| header::HeaderValue::from_static("invalid")),
     );
-    
     response
 }

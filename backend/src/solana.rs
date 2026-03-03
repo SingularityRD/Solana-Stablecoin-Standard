@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use anchor_client::{
     solana_client::{
-        rpc_client::RpcClient,
+        nonblocking::rpc_client::RpcClient,
         rpc_config::RpcSendTransactionConfig,
     },
     solana_sdk::{
@@ -15,16 +15,45 @@ use anchor_client::{
         hash::Hash,
     },
 };
-use anchor_lang::{AnchorDeserialize, AnchorSerialize, InstructionData};
+use anchor_lang::{AnchorDeserialize, AnchorSerialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
+use sha2::{Sha256, Digest};
+use once_cell::sync::Lazy;
 
 /// Seed constants matching the Solana program
 pub const VAULT_SEED: &[u8] = b"stablecoin";
 pub const ROLE_SEED: &[u8] = b"role";
 pub const BLACKLIST_SEED: &[u8] = b"blacklist";
 pub const MINTER_SEED: &[u8] = b"minter";
+
+/// Token-2022 program ID
+static TOKEN_2022_ID: Lazy<Pubkey> = Lazy::new(|| {
+    "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb".parse().unwrap()
+});
+
+/// Compute Anchor instruction discriminator: sha256("global:<name>")[0..8]
+fn anchor_discriminator(name: &str) -> [u8; 8] {
+    let mut hasher = Sha256::new();
+    hasher.update(format!("global:{}", name).as_bytes());
+    let result = hasher.finalize();
+    let mut disc = [0u8; 8];
+    disc.copy_from_slice(&result[..8]);
+    disc
+}
+
+/// Build instruction data with discriminator only (no args)
+fn build_ix_data(name: &str) -> Vec<u8> {
+    anchor_discriminator(name).to_vec()
+}
+
+/// Build instruction data with discriminator + borsh-serialized args
+fn build_ix_data_with_args(name: &str, args: &impl AnchorSerialize) -> Vec<u8> {
+    let mut data = anchor_discriminator(name).to_vec();
+    args.serialize(&mut data).expect("Failed to serialize instruction args");
+    data
+}
 
 /// Solana service for interacting with the SSS token program
 pub struct SolanaService {
@@ -71,6 +100,7 @@ impl SolanaService {
     pub async fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64> {
         self.rpc_client
             .get_minimum_balance_for_rent_exemption(data_len)
+            .await
             .context("Failed to get minimum balance for rent exemption")
     }
     
@@ -78,6 +108,7 @@ impl SolanaService {
     pub async fn get_balance(&self, pubkey: &Pubkey) -> Result<u64> {
         self.rpc_client
             .get_balance(pubkey)
+            .await
             .context("Failed to get account balance")
     }
     
@@ -85,12 +116,13 @@ impl SolanaService {
     pub async fn get_slot(&self) -> Result<u64> {
         self.rpc_client
             .get_slot()
+            .await
             .context("Failed to get current slot")
     }
     
     /// Check if the RPC is healthy
     pub async fn health_check(&self) -> Result<bool> {
-        match self.rpc_client.get_health() {
+        match self.rpc_client.get_health().await {
             Ok(_) => Ok(true),
             Err(e) => {
                 warn!("RPC health check failed: {}", e);
@@ -103,6 +135,7 @@ impl SolanaService {
     pub async fn get_latest_blockhash(&self) -> Result<Hash> {
         self.rpc_client
             .get_latest_blockhash()
+            .await
             .context("Failed to get latest blockhash")
     }
     
@@ -158,18 +191,20 @@ impl SolanaService {
     pub async fn get_account_data(&self, pubkey: &Pubkey) -> Result<Vec<u8>> {
         self.rpc_client
             .get_account_data(pubkey)
+            .await
             .context("Failed to get account data")
     }
     
     /// Check if an account exists
     pub async fn account_exists(&self, pubkey: &Pubkey) -> bool {
-        self.rpc_client.get_account(pubkey).is_ok()
+        self.rpc_client.get_account(pubkey).await.is_ok()
     }
     
     /// Get multiple accounts in a batch
     pub async fn get_multiple_accounts(&self, pubkeys: &[Pubkey]) -> Result<Vec<Option<Vec<u8>>>> {
         let accounts = self.rpc_client
             .get_multiple_accounts(pubkeys)
+            .await
             .context("Failed to get multiple accounts")?;
         
         Ok(accounts.into_iter().map(|opt| opt.map(|acc| acc.data)).collect())
@@ -186,6 +221,7 @@ impl SolanaService {
                     ..Default::default()
                 },
             )
+            .await
             .context("Failed to send transaction")?;
         
         info!("Transaction sent: {}", signature);
@@ -196,6 +232,7 @@ impl SolanaService {
     pub async fn send_and_confirm_transaction(&self, transaction: Transaction) -> Result<Signature> {
         let signature = self.rpc_client
             .send_and_confirm_transaction_with_spinner(&transaction)
+            .await
             .context("Failed to send and confirm transaction")?;
         
         info!("Transaction confirmed: {}", signature);
@@ -234,39 +271,31 @@ impl SolanaService {
         authority: &Pubkey,
         recipient_token_account: &Pubkey,
         amount: u64,
-        state_bump: u8,
+        _state_bump: u8,
         role_assignment: Option<(&Pubkey, u8)>,
         minter_info: Option<(&Pubkey, u8)>,
-        token_program: &Pubkey,
     ) -> Instruction {
-        let mut accounts = vec![
-            AccountMeta::new(*authority, true),
-            AccountMeta::new(*stablecoin, false),
-            AccountMeta::new_readonly(*asset_mint, false),
-            AccountMeta::new(*recipient_token_account, false),
-            AccountMeta::new_readonly(*token_program, false),
-        ];
-        
-        // Add role assignment PDA if provided
-        if let Some((role_pda, _bump)) = role_assignment {
-            accounts.insert(2, AccountMeta::new_readonly(*role_pda, false));
-        } else {
-            // Insert placeholder for optional account
-            accounts.insert(2, AccountMeta::new_readonly(system_program::ID, false));
-        }
-        
-        // Add minter info PDA if provided
-        if let Some((minter_pda, _bump)) = minter_info {
-            accounts.insert(3, AccountMeta::new(*minter_pda, false));
-        } else {
-            // Insert placeholder for optional account
-            accounts.insert(3, AccountMeta::new_readonly(system_program::ID, false));
-        }
-        
+        let role_meta = match role_assignment {
+            Some((pda, _)) => AccountMeta::new_readonly(*pda, false),
+            None => AccountMeta::new_readonly(system_program::ID, false),
+        };
+        let minter_meta = match minter_info {
+            Some((pda, _)) => AccountMeta::new(*pda, false),
+            None => AccountMeta::new_readonly(system_program::ID, false),
+        };
+
         Instruction {
             program_id: self.program_id,
-            accounts,
-            data: MintInstruction { amount }.data(),
+            accounts: vec![
+                AccountMeta::new(*authority, true),              // authority
+                AccountMeta::new(*stablecoin, false),            // state
+                role_meta,                                        // role_assignment (optional)
+                minter_meta,                                      // minter_info (optional)
+                AccountMeta::new(*asset_mint, false),             // asset_mint (mut!)
+                AccountMeta::new(*recipient_token_account, false), // recipient
+                AccountMeta::new_readonly(*TOKEN_2022_ID, false), // token_program
+            ],
+            data: build_ix_data_with_args("mint", &MintInstruction { amount }),
         }
     }
     
@@ -279,28 +308,23 @@ impl SolanaService {
         from_token_account: &Pubkey,
         amount: u64,
         role_assignment: Option<(&Pubkey, u8)>,
-        token_program: &Pubkey,
     ) -> Instruction {
-        let mut accounts = vec![
-            AccountMeta::new(*authority, true),
-            AccountMeta::new(*stablecoin, false),
-            AccountMeta::new_readonly(*asset_mint, false),
-            AccountMeta::new(*from_token_account, false),
-            AccountMeta::new_readonly(*token_program, false),
-        ];
-        
-        // Add role assignment PDA if provided
-        if let Some((role_pda, _bump)) = role_assignment {
-            accounts.insert(2, AccountMeta::new_readonly(*role_pda, false));
-        } else {
-            // Insert placeholder for optional account
-            accounts.insert(2, AccountMeta::new_readonly(system_program::ID, false));
-        }
-        
+        let role_meta = match role_assignment {
+            Some((pda, _)) => AccountMeta::new_readonly(*pda, false),
+            None => AccountMeta::new_readonly(system_program::ID, false),
+        };
+
         Instruction {
             program_id: self.program_id,
-            accounts,
-            data: BurnInstruction { amount }.data(),
+            accounts: vec![
+                AccountMeta::new(*authority, true),
+                AccountMeta::new(*stablecoin, false),
+                role_meta,
+                AccountMeta::new(*asset_mint, false),             // mut!
+                AccountMeta::new(*from_token_account, false),
+                AccountMeta::new_readonly(*TOKEN_2022_ID, false), // token_program
+            ],
+            data: build_ix_data_with_args("burn", &BurnInstruction { amount }),
         }
     }
     
@@ -312,17 +336,24 @@ impl SolanaService {
         account_to_blacklist: &Pubkey,
         blacklist_entry: &Pubkey,
         reason: String,
+        role_assignment: Option<&Pubkey>,
     ) -> Instruction {
+        let role_meta = match role_assignment {
+            Some(pda) => AccountMeta::new_readonly(*pda, false),
+            None => AccountMeta::new_readonly(system_program::ID, false),
+        };
+
         Instruction {
             program_id: self.program_id,
             accounts: vec![
                 AccountMeta::new(*authority, true),
                 AccountMeta::new(*stablecoin, false),
+                role_meta,
                 AccountMeta::new(*blacklist_entry, false),
                 AccountMeta::new_readonly(*account_to_blacklist, false),
                 AccountMeta::new_readonly(system_program::ID, false),
             ],
-            data: AddBlacklistInstruction { reason }.data(),
+            data: build_ix_data_with_args("add_to_blacklist", &AddBlacklistInstruction { reason }),
         }
     }
     
@@ -333,24 +364,151 @@ impl SolanaService {
         authority: &Pubkey,
         account_to_unblacklist: &Pubkey,
         blacklist_entry: &Pubkey,
+        role_assignment: Option<&Pubkey>,
+    ) -> Instruction {
+        let role_meta = match role_assignment {
+            Some(pda) => AccountMeta::new_readonly(*pda, false),
+            None => AccountMeta::new_readonly(system_program::ID, false),
+        };
+
+        Instruction {
+            program_id: self.program_id,
+            accounts: vec![
+                AccountMeta::new(*authority, true),
+                AccountMeta::new(*stablecoin, false),
+                role_meta,
+                AccountMeta::new(*blacklist_entry, false),
+                AccountMeta::new_readonly(*account_to_unblacklist, false),
+                AccountMeta::new_readonly(system_program::ID, false),
+            ],
+            data: build_ix_data("remove_from_blacklist"),
+        }
+    }
+    
+    /// Build a pause instruction
+    pub fn build_pause_instruction(
+        &self,
+        stablecoin: &Pubkey,
+        authority: &Pubkey,
     ) -> Instruction {
         Instruction {
             program_id: self.program_id,
             accounts: vec![
                 AccountMeta::new(*authority, true),
                 AccountMeta::new(*stablecoin, false),
-                AccountMeta::new(*blacklist_entry, false),
-                AccountMeta::new_readonly(*account_to_unblacklist, false),
-                AccountMeta::new_readonly(system_program::ID, false),
             ],
-            data: RemoveBlacklistInstruction.data(),
+            data: build_ix_data("pause"),
         }
     }
     
+    /// Build an unpause instruction
+    pub fn build_unpause_instruction(
+        &self,
+        stablecoin: &Pubkey,
+        authority: &Pubkey,
+    ) -> Instruction {
+        Instruction {
+            program_id: self.program_id,
+            accounts: vec![
+                AccountMeta::new(*authority, true),
+                AccountMeta::new(*stablecoin, false),
+            ],
+            data: build_ix_data("unpause"),
+        }
+    }
+    
+    /// Build a freeze_account instruction
+    pub fn build_freeze_instruction(
+        &self,
+        stablecoin: &Pubkey,
+        asset_mint: &Pubkey,
+        authority: &Pubkey,
+        account_to_freeze: &Pubkey,
+        role_assignment: Option<&Pubkey>,
+    ) -> Instruction {
+        let role_meta = match role_assignment {
+            Some(pda) => AccountMeta::new_readonly(*pda, false),
+            None => AccountMeta::new_readonly(system_program::ID, false),
+        };
+
+        Instruction {
+            program_id: self.program_id,
+            accounts: vec![
+                AccountMeta::new(*authority, true),
+                AccountMeta::new_readonly(*stablecoin, false), // state NOT mut for freeze
+                role_meta,
+                AccountMeta::new(*asset_mint, false),
+                AccountMeta::new(*account_to_freeze, false),
+                AccountMeta::new_readonly(*TOKEN_2022_ID, false),
+            ],
+            data: build_ix_data("freeze_account"),
+        }
+    }
+    
+    /// Build a thaw_account instruction
+    pub fn build_thaw_instruction(
+        &self,
+        stablecoin: &Pubkey,
+        asset_mint: &Pubkey,
+        authority: &Pubkey,
+        account_to_thaw: &Pubkey,
+        role_assignment: Option<&Pubkey>,
+    ) -> Instruction {
+        let role_meta = match role_assignment {
+            Some(pda) => AccountMeta::new_readonly(*pda, false),
+            None => AccountMeta::new_readonly(system_program::ID, false),
+        };
+
+        Instruction {
+            program_id: self.program_id,
+            accounts: vec![
+                AccountMeta::new_readonly(*authority, true), // NOT mut for thaw
+                AccountMeta::new_readonly(*stablecoin, false),
+                role_meta,
+                AccountMeta::new(*asset_mint, false),
+                AccountMeta::new(*account_to_thaw, false),
+                AccountMeta::new_readonly(*TOKEN_2022_ID, false),
+            ],
+            data: build_ix_data("thaw_account"),
+        }
+    }
+    
+    /// Build a seize instruction
+    pub fn build_seize_instruction(
+        &self,
+        stablecoin: &Pubkey,
+        asset_mint: &Pubkey,
+        authority: &Pubkey,
+        from_account: &Pubkey,
+        to_account: &Pubkey,
+        amount: u64,
+        role_assignment: Option<&Pubkey>,
+    ) -> Instruction {
+        let role_meta = match role_assignment {
+            Some(pda) => AccountMeta::new_readonly(*pda, false),
+            None => AccountMeta::new_readonly(system_program::ID, false),
+        };
+
+        Instruction {
+            program_id: self.program_id,
+            accounts: vec![
+                AccountMeta::new(*authority, true),
+                AccountMeta::new(*stablecoin, false),
+                role_meta,
+                AccountMeta::new(*asset_mint, false),
+                AccountMeta::new(*from_account, false),
+                AccountMeta::new(*to_account, false),
+                AccountMeta::new_readonly(*TOKEN_2022_ID, false),
+            ],
+            data: build_ix_data_with_args("seize", &SeizeInstruction { amount }),
+        }
+    }
+
     /// Get token account balance (returns raw amount)
     pub async fn get_token_account_balance(&self, token_account: &Pubkey) -> Result<u64> {
         let balance = self.rpc_client
             .get_token_account_balance(token_account)
+            .await
             .context("Failed to get token account balance")?;
         
         balance.amount.parse::<u64>()
@@ -361,6 +519,7 @@ impl SolanaService {
     pub async fn confirm_transaction(&self, signature: &Signature) -> Result<bool> {
         let result = self.rpc_client
             .get_signature_status(signature)
+            .await
             .context("Failed to get transaction status")?;
         
         match result {
@@ -376,6 +535,7 @@ impl SolanaService {
     pub async fn simulate_transaction(&self, transaction: &Transaction) -> Result<()> {
         let result = self.rpc_client
             .simulate_transaction(transaction)
+            .await
             .context("Failed to simulate transaction")?;
         
         if let Some(err) = result.value.err {
@@ -405,6 +565,11 @@ struct AddBlacklistInstruction {
 
 #[derive(AnchorSerialize, AnchorDeserialize)]
 struct RemoveBlacklistInstruction;
+
+#[derive(AnchorSerialize, AnchorDeserialize)]
+struct SeizeInstruction {
+    amount: u64,
+}
 
 /// Helper to parse a Pubkey from string
 pub fn parse_pubkey(s: &str) -> Result<Pubkey> {

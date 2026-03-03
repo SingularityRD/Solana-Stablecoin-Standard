@@ -113,10 +113,31 @@ pub mod sss_token {
         minter_management::update_quota_handler(ctx, new_quota)
     }
 
-    // Transfer hook is called by SPL Token-2022 during transfers.
-    // This is exposed as a standard instruction for testing purposes.
-    // Note: In production, this is invoked via the transfer hook interface.
+    // Transfer hook - exposed as standard instruction for testing.
+    // In production, Token-2022 invokes via the SPL Transfer Hook interface
+    // which uses a different discriminator. The fallback() function below
+    // routes those calls to this handler.
     pub fn execute_transfer_hook(ctx: Context<TransferHook>, amount: u64) -> Result<()> {
         transfer_hook::enforce_transfer(ctx, amount)
+    }
+
+    /// Fallback handler for SPL Transfer Hook interface.
+    /// Token-2022 uses the SPL discriminator (not Anchor's) when invoking
+    /// transfer hooks during transfers. This catches those calls.
+    pub fn fallback<'info>(
+        program_id: &Pubkey,
+        accounts: &'info [AccountInfo<'info>],
+        data: &[u8],
+    ) -> Result<()> {
+        use anchor_lang::solana_program::program_error::ProgramError;
+        // SPL Transfer Hook Execute discriminator:
+        // SHA-256("spl-transfer-hook-interface:execute")[..8]
+        const SPL_TRANSFER_HOOK_EXECUTE: [u8; 8] = [105, 37, 101, 197, 75, 251, 102, 26];
+
+        if data.len() >= 16 && data[..8] == SPL_TRANSFER_HOOK_EXECUTE {
+            return __private::__global::execute_transfer_hook(program_id, accounts, &data[8..]);
+        }
+
+        Err(ProgramError::InvalidInstructionData.into())
     }
 }

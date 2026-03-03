@@ -1,14 +1,15 @@
 import * as anchor from "@coral-xyz/anchor";
-import { Program } from "@coral-xyz/anchor";
-import { SssToken } from "../target/types/sss_token";
 import { expect } from "chai";
+
+const TOKEN_2022_PROGRAM_ID = new anchor.web3.PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 
 describe("SSS-1: Basic Operations", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const program = anchor.workspace.SssToken as Program<SssToken>;
+  const program = anchor.workspace.SssToken;
   const authority = provider.wallet;
+  const assetMint = anchor.web3.Keypair.generate();
 
   let stablecoinPda: anchor.web3.PublicKey;
   const PRESET_SSS_1 = 1;
@@ -19,7 +20,7 @@ describe("SSS-1: Basic Operations", () => {
 
   before(async () => {
     const [pda] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("stablecoin"), authority.publicKey.toBuffer()],
+      [Buffer.from("stablecoin"), assetMint.publicKey.toBuffer()],
       program.programId
     );
     stablecoinPda = pda;
@@ -31,9 +32,10 @@ describe("SSS-1: Basic Operations", () => {
       .accounts({
         authority: authority.publicKey,
         state: stablecoinPda,
-        assetMint: anchor.web3.PublicKey.default,
+        assetMint: assetMint.publicKey,
         systemProgram: anchor.web3.SystemProgram.programId,
       })
+      .signers([assetMint])
       .rpc();
 
     const state = await program.account.stablecoinState.fetch(stablecoinPda);
@@ -44,14 +46,19 @@ describe("SSS-1: Basic Operations", () => {
   });
 
   it("Mints tokens", async () => {
-    const recipient = anchor.web3.Keypair.generate();
+    const recipientTokenAccount = anchor.web3.Keypair.generate().publicKey;
     const amount = new anchor.BN(1_000_000);
 
     await program.methods
-      .mint(recipient.publicKey, amount)
+      .mint(amount)
       .accounts({
         authority: authority.publicKey,
         state: stablecoinPda,
+        roleAssignment: null,
+        minterInfo: null,
+        assetMint: assetMint.publicKey,
+        recipient: recipientTokenAccount,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
       })
       .rpc();
 
@@ -61,12 +68,17 @@ describe("SSS-1: Basic Operations", () => {
 
   it("Burns tokens", async () => {
     const amount = new anchor.BN(500_000);
+    const fromTokenAccount = anchor.web3.Keypair.generate().publicKey;
 
     await program.methods
       .burn(amount)
       .accounts({
         authority: authority.publicKey,
         state: stablecoinPda,
+        roleAssignment: null,
+        assetMint: assetMint.publicKey,
+        from: fromTokenAccount,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
       })
       .rpc();
 
@@ -101,52 +113,71 @@ describe("SSS-1: Basic Operations", () => {
   });
 
   it("Freezes account", async () => {
-    const account = anchor.web3.Keypair.generate().publicKey;
+    const accountTokenAccount = anchor.web3.Keypair.generate().publicKey;
 
     await program.methods
-      .freezeAccount(account)
+      .freezeAccount()
       .accounts({
         authority: authority.publicKey,
         state: stablecoinPda,
+        roleAssignment: null,
+        assetMint: assetMint.publicKey,
+        account: accountTokenAccount,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
       })
       .rpc();
 
-    // Event should be emitted
-    expect(true).to.be.true;
+    const state = await program.account.stablecoinState.fetch(stablecoinPda);
+    expect(state.authority.toString()).to.equal(authority.publicKey.toString());
   });
 
   it("Thaws account", async () => {
-    const account = anchor.web3.Keypair.generate().publicKey;
+    const accountTokenAccount = anchor.web3.Keypair.generate().publicKey;
 
     await program.methods
-      .thawAccount(account)
+      .thawAccount()
       .accounts({
         authority: authority.publicKey,
         state: stablecoinPda,
+        roleAssignment: null,
+        assetMint: assetMint.publicKey,
+        account: accountTokenAccount,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
       })
       .rpc();
 
-    expect(true).to.be.true;
+    const state = await program.account.stablecoinState.fetch(stablecoinPda);
+    expect(state.authority.toString()).to.equal(authority.publicKey.toString());
   });
 
   it("Mints to multiple recipients", async () => {
-    const recipient1 = anchor.web3.Keypair.generate();
-    const recipient2 = anchor.web3.Keypair.generate();
+    const recipientTokenAccount1 = anchor.web3.Keypair.generate().publicKey;
+    const recipientTokenAccount2 = anchor.web3.Keypair.generate().publicKey;
     const amount = new anchor.BN(100_000);
 
     await program.methods
-      .mint(recipient1.publicKey, amount)
+      .mint(amount)
       .accounts({
         authority: authority.publicKey,
         state: stablecoinPda,
+        roleAssignment: null,
+        minterInfo: null,
+        assetMint: assetMint.publicKey,
+        recipient: recipientTokenAccount1,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
       })
       .rpc();
 
     await program.methods
-      .mint(recipient2.publicKey, amount)
+      .mint(amount)
       .accounts({
         authority: authority.publicKey,
         state: stablecoinPda,
+        roleAssignment: null,
+        minterInfo: null,
+        assetMint: assetMint.publicKey,
+        recipient: recipientTokenAccount2,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
       })
       .rpc();
 
@@ -157,12 +188,17 @@ describe("SSS-1: Basic Operations", () => {
   it("Burns partial amount", async () => {
     const stateBefore = await program.account.stablecoinState.fetch(stablecoinPda);
     const burnAmount = new anchor.BN(10_000);
+    const fromTokenAccount = anchor.web3.Keypair.generate().publicKey;
 
     await program.methods
       .burn(burnAmount)
       .accounts({
         authority: authority.publicKey,
         state: stablecoinPda,
+        roleAssignment: null,
+        assetMint: assetMint.publicKey,
+        from: fromTokenAccount,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
       })
       .rpc();
 
@@ -220,87 +256,122 @@ describe("SSS-1: Basic Operations", () => {
   });
 
   it("Freezes multiple accounts", async () => {
-    const account1 = anchor.web3.Keypair.generate().publicKey;
-    const account2 = anchor.web3.Keypair.generate().publicKey;
-    const account3 = anchor.web3.Keypair.generate().publicKey;
+    const accountTokenAccount1 = anchor.web3.Keypair.generate().publicKey;
+    const accountTokenAccount2 = anchor.web3.Keypair.generate().publicKey;
+    const accountTokenAccount3 = anchor.web3.Keypair.generate().publicKey;
 
     await program.methods
-      .freezeAccount(account1)
+      .freezeAccount()
       .accounts({
         authority: authority.publicKey,
         state: stablecoinPda,
+        roleAssignment: null,
+        assetMint: assetMint.publicKey,
+        account: accountTokenAccount1,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
       })
       .rpc();
 
     await program.methods
-      .freezeAccount(account2)
+      .freezeAccount()
       .accounts({
         authority: authority.publicKey,
         state: stablecoinPda,
+        roleAssignment: null,
+        assetMint: assetMint.publicKey,
+        account: accountTokenAccount2,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
       })
       .rpc();
 
     await program.methods
-      .freezeAccount(account3)
+      .freezeAccount()
       .accounts({
         authority: authority.publicKey,
         state: stablecoinPda,
+        roleAssignment: null,
+        assetMint: assetMint.publicKey,
+        account: accountTokenAccount3,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
       })
       .rpc();
 
-    expect(true).to.be.true;
+    const state = await program.account.stablecoinState.fetch(stablecoinPda);
+    expect(state.authority.toString()).to.equal(authority.publicKey.toString());
   });
 
   it("Thaws multiple accounts", async () => {
-    const account1 = anchor.web3.Keypair.generate().publicKey;
-    const account2 = anchor.web3.Keypair.generate().publicKey;
+    const accountTokenAccount1 = anchor.web3.Keypair.generate().publicKey;
+    const accountTokenAccount2 = anchor.web3.Keypair.generate().publicKey;
 
     // Freeze first
     await program.methods
-      .freezeAccount(account1)
+      .freezeAccount()
       .accounts({
         authority: authority.publicKey,
         state: stablecoinPda,
+        roleAssignment: null,
+        assetMint: assetMint.publicKey,
+        account: accountTokenAccount1,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
       })
       .rpc();
 
     await program.methods
-      .freezeAccount(account2)
+      .freezeAccount()
       .accounts({
         authority: authority.publicKey,
         state: stablecoinPda,
+        roleAssignment: null,
+        assetMint: assetMint.publicKey,
+        account: accountTokenAccount2,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
       })
       .rpc();
 
     // Then thaw
     await program.methods
-      .thawAccount(account1)
+      .thawAccount()
       .accounts({
         authority: authority.publicKey,
         state: stablecoinPda,
+        roleAssignment: null,
+        assetMint: assetMint.publicKey,
+        account: accountTokenAccount1,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
       })
       .rpc();
 
     await program.methods
-      .thawAccount(account2)
+      .thawAccount()
       .accounts({
         authority: authority.publicKey,
         state: stablecoinPda,
+        roleAssignment: null,
+        assetMint: assetMint.publicKey,
+        account: accountTokenAccount2,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
       })
       .rpc();
 
-    expect(true).to.be.true;
+    const state = await program.account.stablecoinState.fetch(stablecoinPda);
+    expect(state.authority.toString()).to.equal(authority.publicKey.toString());
   });
 
   it("Mints large amount", async () => {
-    const recipient = anchor.web3.Keypair.generate();
+    const recipientTokenAccount = anchor.web3.Keypair.generate().publicKey;
     const largeAmount = new anchor.BN("1000000000000"); // 1 trillion
 
     await program.methods
-      .mint(recipient.publicKey, largeAmount)
+      .mint(largeAmount)
       .accounts({
         authority: authority.publicKey,
         state: stablecoinPda,
+        roleAssignment: null,
+        minterInfo: null,
+        assetMint: assetMint.publicKey,
+        recipient: recipientTokenAccount,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
       })
       .rpc();
 
